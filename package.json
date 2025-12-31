@@ -1,0 +1,39 @@
+{
+  "name": "mediawiki-mcp",
+  "version": "1.0.0",
+  "description": "MediaWiki MCP server for read-only wiki operations",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsc --watch",
+    "start": "node dist/index.js",
+    "start:sse": "node dist/sse-transport.js",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": ["mcp", "mediawiki", "model-context-protocol", "llm", "ai"],
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ttpears/mediawiki-mcp.git"
+  },
+  "bugs": {
+    "url": "https://github.com/ttpears/mediawiki-mcp/issues"
+  },
+  "homepage": "https://github.com/ttpears/mediawiki-mcp#readme",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.4",
+    "axios": "^1.7.9",
+    "express": "^4.21.2",
+    "zod": "^3.25.0"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.0",
+    "@types/node": "^22.10.5",
+    "typescript": "^5.7.3"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}
