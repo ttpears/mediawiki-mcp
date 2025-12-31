@@ -73,8 +73,8 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  const port = parseInt(process.env.SSE_PORT || "8008", 10);
-  const host = process.env.SSE_HOST || "localhost";
+  const port = parseInt(process.env.MEDIAWIKI_MCP_PORT || "8008", 10);
+  const host = process.env.MEDIAWIKI_MCP_HOST || "localhost";
 
   createSSEServer(config, port, host).catch((error) => {
     console.error("Fatal error:", error);

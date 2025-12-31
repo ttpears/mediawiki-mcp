@@ -53,8 +53,8 @@ Set environment variables in `.env`:
 
 ```bash
 MEDIAWIKI_BASE_URL=https://wiki.example.com
-SSE_PORT=8008
-SSE_HOST=localhost
+MEDIAWIKI_MCP_PORT=8008
+MEDIAWIKI_MCP_HOST=localhost
 ```
 
 ## Usage
@@ -74,8 +74,8 @@ npm start
 ```bash
 # Set environment variables
 export MEDIAWIKI_BASE_URL=https://wiki.example.com
-export SSE_PORT=8008
-export SSE_HOST=0.0.0.0
+export MEDIAWIKI_MCP_PORT=8008
+export MEDIAWIKI_MCP_HOST=0.0.0.0
 
 # Run SSE server
 npm run start:sse
@@ -96,8 +96,8 @@ services:
     container_name: mediawiki-mcp
     environment:
       - MEDIAWIKI_BASE_URL=https://wiki.example.com
-      - SSE_PORT=8008
-      - SSE_HOST=0.0.0.0
+      - MEDIAWIKI_MCP_PORT=8008
+      - MEDIAWIKI_MCP_HOST=0.0.0.0
     networks:
       - librechat_network
     restart: unless-stopped

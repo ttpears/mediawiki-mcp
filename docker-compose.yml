@@ -6,8 +6,8 @@ services:
     container_name: mediawiki-mcp
     environment:
       - MEDIAWIKI_BASE_URL=https://wiki.example.com
-      - SSE_PORT=8008
-      - SSE_HOST=0.0.0.0
+      - MEDIAWIKI_MCP_PORT=8008
+      - MEDIAWIKI_MCP_HOST=0.0.0.0
     ports:
       - "8008:8008"
     restart: unless-stopped
