@@ -6,13 +6,13 @@ services:
     container_name: mediawiki-mcp
     environment:
       - MEDIAWIKI_BASE_URL=https://wiki.example.com
-      - MEDIAWIKI_MCP_PORT=8008
+      - MEDIAWIKI_MCP_PORT=8009
       - MEDIAWIKI_MCP_HOST=0.0.0.0
     ports:
-      - "8008:8008"
+      - "8009:8009"
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8008/health"]
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8009/health"]
       interval: 30s
       timeout: 10s
       retries: 3

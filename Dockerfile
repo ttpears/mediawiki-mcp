@@ -25,11 +25,11 @@ RUN chown -R nodejs:nodejs /app
 USER nodejs
 
 # Expose SSE port
-EXPOSE 8008
+EXPOSE 8009
 
 # Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8008/health || exit 1
+  CMD wget --quiet --tries=1 --spider http://localhost:8009/health || exit 1
 
 # Run SSE server by default
 CMD ["node", "dist/sse-transport.js"]

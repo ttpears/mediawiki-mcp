@@ -44,7 +44,7 @@ docker-compose up -d
 
 # Or build manually
 docker build -t mediawiki-mcp .
-docker run -e MEDIAWIKI_BASE_URL=https://wiki.example.com -p 8008:8008 mediawiki-mcp
+docker run -e MEDIAWIKI_BASE_URL=https://wiki.example.com -p 8009:8009 mediawiki-mcp
 ```
 
 ## Configuration
@@ -53,7 +53,7 @@ Set environment variables in `.env`:
 
 ```bash
 MEDIAWIKI_BASE_URL=https://wiki.example.com
-MEDIAWIKI_MCP_PORT=8008
+MEDIAWIKI_MCP_PORT=8009
 MEDIAWIKI_MCP_HOST=localhost
 ```
 
@@ -74,14 +74,14 @@ npm start
 ```bash
 # Set environment variables
 export MEDIAWIKI_BASE_URL=https://wiki.example.com
-export MEDIAWIKI_MCP_PORT=8008
+export MEDIAWIKI_MCP_PORT=8009
 export MEDIAWIKI_MCP_HOST=0.0.0.0
 
 # Run SSE server
 npm run start:sse
 ```
 
-Access at: `http://localhost:8008/sse`
+Access at: `http://localhost:8009/sse`
 
 ### LibreChat Integration
 
@@ -96,7 +96,7 @@ services:
     container_name: mediawiki-mcp
     environment:
       - MEDIAWIKI_BASE_URL=https://wiki.example.com
-      - MEDIAWIKI_MCP_PORT=8008
+      - MEDIAWIKI_MCP_PORT=8009
       - MEDIAWIKI_MCP_HOST=0.0.0.0
     networks:
       - librechat_network
@@ -112,7 +112,7 @@ Configure in LibreChat MCP settings:
 {
   "mcpServers": {
     "mediawiki": {
-      "url": "http://mediawiki-mcp:8008/sse",
+      "url": "http://mediawiki-mcp:8009/sse",
       "name": "MediaWiki",
       "description": "Access to your MediaWiki instance"
     }
@@ -244,7 +244,7 @@ npm run type-check
 npm run build
 
 # Test API connection
-curl http://localhost:8008/health
+curl http://localhost:8009/health
 ```
 
 ## Architecture

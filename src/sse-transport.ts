@@ -10,7 +10,7 @@ import type { MediaWikiConfig } from "./types.js";
  */
 export async function createSSEServer(
   config: MediaWikiConfig,
-  port: number = 8008,
+  port: number = 8009,
   host: string = "localhost"
 ): Promise<void> {
   const app = express();
@@ -73,7 +73,7 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     process.exit(1);
   }
 
-  const port = parseInt(process.env.MEDIAWIKI_MCP_PORT || "8008", 10);
+  const port = parseInt(process.env.MEDIAWIKI_MCP_PORT || "8009", 10);
   const host = process.env.MEDIAWIKI_MCP_HOST || "localhost";
 
   createSSEServer(config, port, host).catch((error) => {
