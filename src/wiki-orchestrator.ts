@@ -243,7 +243,7 @@ export class WikiOrchestrator {
     title: string,
     direction: 'forward' | 'backlinks',
     opts?: { wiki?: string; limit?: number; continueFrom?: string }
-  ): Promise<{ wiki: string; links: (ActionLink | ActionBacklink)[] }> {
+  ): Promise<{ wiki: string; links: (ActionLink | ActionBacklink)[]; hasMore: boolean; continueFrom?: string }> {
     const clients = this.getClients(opts?.wiki);
     const limit = opts?.limit ?? 10;
     let result: PaginatedResult<ActionLink | ActionBacklink>;
@@ -252,13 +252,13 @@ export class WikiOrchestrator {
     } else {
       result = await clients.action.getPageLinks(title, limit, opts?.continueFrom);
     }
-    return { wiki: clients.config.name, links: result.items };
+    return { wiki: clients.config.name, links: result.items, hasMore: result.hasMore, continueFrom: result.continueFrom };
   }
 
   async getCategoryMembers(
     category: string,
     opts?: { wiki?: string; type?: string; limit?: number; continueFrom?: string }
-  ): Promise<{ wiki: string; members: ActionCategoryMember[] }> {
+  ): Promise<{ wiki: string; members: ActionCategoryMember[]; hasMore: boolean; continueFrom?: string }> {
     const clients = this.getClients(opts?.wiki);
     const result = await clients.action.getCategoryMembers(
       category,
@@ -266,7 +266,7 @@ export class WikiOrchestrator {
       opts?.type,
       opts?.continueFrom
     );
-    return { wiki: clients.config.name, members: result.items };
+    return { wiki: clients.config.name, members: result.items, hasMore: result.hasMore, continueFrom: result.continueFrom };
   }
 
   async getFile(
