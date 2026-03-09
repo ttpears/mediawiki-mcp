@@ -96,24 +96,7 @@ export class RestClient {
   }
 
   async getPageHtml(title: string): Promise<string | null> {
-    try {
-      const response = await this.client.request<string>({
-        method: 'GET',
-        url: `/page/${encodeURIComponent(title)}/html`,
-      });
-      return response.data;
-    } catch (err) {
-      const axiosErr = err as AxiosError;
-      if (axiosErr.response?.status === 404) {
-        return null;
-      }
-      throw new MediaWikiApiError(
-        axiosErr.message,
-        this.wikiName,
-        `GET /page/${title}/html`,
-        axiosErr.response?.status
-      );
-    }
+    return this.requestOrNull<string>('GET', `/page/${encodeURIComponent(title)}/html`);
   }
 
   async search(query: string, limit: number): Promise<RestSearchResponse> {
