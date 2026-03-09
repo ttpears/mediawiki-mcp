@@ -1,35 +1,34 @@
-FROM node:20-alpine
+FROM node:20-alpine AS builder
 
-# Set working directory
 WORKDIR /app
 
-# Copy package files
+# Copy package files and install all deps (including dev for build)
 COPY package*.json ./
+RUN npm ci
 
-# Install dependencies
-RUN npm ci --only=production
-
-# Copy TypeScript config and source
+# Copy source and build
 COPY tsconfig.json ./
 COPY src ./src
-
-# Build TypeScript
 RUN npm run build
 
-# Remove dev dependencies and source files to reduce image size
-RUN rm -rf src tsconfig.json
+# Production stage
+FROM node:20-alpine
+
+WORKDIR /app
+
+COPY package*.json ./
+RUN npm ci --omit=dev
+
+COPY --from=builder /app/dist ./dist
 
 # Create non-root user
 RUN addgroup -g 1001 -S nodejs && adduser -S nodejs -u 1001
 RUN chown -R nodejs:nodejs /app
 USER nodejs
 
-# Expose SSE port
 EXPOSE 8009
 
-# Health check
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
   CMD wget --quiet --tries=1 --spider http://localhost:8009/health || exit 1
 
-# Run SSE server by default
-CMD ["node", "dist/sse-transport.js"]
+CMD ["node", "dist/http-transport.js"]

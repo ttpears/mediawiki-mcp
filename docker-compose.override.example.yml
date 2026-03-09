@@ -1,0 +1,22 @@
+# LibreChat integration
+# Copy this to your LibreChat directory as docker-compose.override.yml
+# and update the build path and env_file path to match your setup.
+#
+# Then add to your librechat.yaml:
+#
+#   mcpServers:
+#     mediawiki:
+#       type: streamable-http
+#       url: http://mediawiki-mcp:8009/mcp
+#
+services:
+  mediawiki-mcp:
+    build: /path/to/mediawiki-mcp
+    container_name: mediawiki-mcp
+    env_file:
+      - /path/to/mediawiki-mcp/.env
+    environment:
+      - MEDIAWIKI_MCP_HOST=0.0.0.0
+    restart: unless-stopped
+    networks:
+      - default
