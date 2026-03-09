@@ -92,6 +92,19 @@ export class ActionClient {
         }
 
         const response = await this.client.request<T>(config);
+
+        // Check for MediaWiki API-level errors (HTTP 200 with error payload)
+        const responseData = response.data as any;
+        if (responseData?.error) {
+          throw new MediaWikiApiError(
+            responseData.error.info || responseData.error.code || 'Unknown API error',
+            this.wikiName,
+            `${method} action=${params.action ?? 'unknown'}`,
+            undefined,
+            responseData.error.code
+          );
+        }
+
         return response.data;
       } catch (err) {
         const axiosErr = err as AxiosError;
