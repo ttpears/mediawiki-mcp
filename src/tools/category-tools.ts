@@ -41,6 +41,14 @@ export function registerCategoryTools(server: McpServer, orchestrator: WikiOrche
         parts.push('No categories found.');
       }
 
+      // Pagination footer for single-wiki requests
+      if (wiki && result.results.length === 1) {
+        const wikiResult = result.results[0] as any;
+        if (wikiResult.continueFrom) {
+          parts.push('', `More results available. Use continue_from="${wikiResult.continueFrom}" to get the next page.`);
+        }
+      }
+
       if (result.warnings.length > 0) {
         parts.push('');
         parts.push('Warnings:');
