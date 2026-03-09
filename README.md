@@ -42,11 +42,48 @@ docker build -t mediawiki-mcp .
 docker run -e MEDIAWIKI_WIKIS="Main:https://wiki.example.com" -p 8009:8009 mediawiki-mcp
 ```
 
+## Authentication
+
+This server uses MediaWiki **bot passwords** for API authentication. Bot passwords are scoped credentials that limit what the bot can do, separate from your real account password.
+
+### Creating a Bot Password
+
+1. Log in to your MediaWiki wiki as a user with the permissions you want the bot to have
+2. Navigate to **Special:BotPasswords** (e.g., `https://wiki.example.com/wiki/Special:BotPasswords`)
+3. Enter a bot name (e.g., `mcp-server`) and click **Create**
+4. Select the grants (permissions) the bot needs:
+   - **Basic rights** — read pages (minimum for read-only access)
+   - **Edit existing pages** — for `update-page`
+   - **Create, edit, and move pages** — for `create-page`
+   - **Delete pages and revisions** — for `delete-page` / `undelete-page`
+   - **Upload new files** — for `upload-file` / `upload-file-from-url`
+   - **High-volume editing** — recommended if doing bulk operations
+5. Click **Create** to generate the password
+
+MediaWiki will display a username and password in this format:
+
+```
+Username: YourUsername@mcp-server
+Password: your-bot-password-here
+```
+
+**The token for this server is the password portion only** (the long generated string). The username portion is used with `action=login` which this server handles internally via the bearer token mechanism.
+
+> If your MediaWiki instance uses bearer token authentication (e.g., via OAuth2 or a custom auth extension), use that token directly instead.
+
+### Repeat for Each Wiki
+
+If you have multiple wikis, create a bot password on each one. You'll end up with one token per wiki.
+
 ## Configuration
 
 ### Multi-Wiki Setup
 
+Create a `.env` file in the project root:
+
 ```bash
+# .env
+
 # Register multiple wikis with named labels
 MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.example.com
 
@@ -54,15 +91,18 @@ MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.exampl
 MEDIAWIKI_DEFAULT_WIKI=Sales
 
 # Per-wiki API tokens (uppercase wiki name)
-MEDIAWIKI_API_TOKEN_SALES=your-sales-token
-MEDIAWIKI_API_TOKEN_DEV=your-dev-token
+# These are the bot passwords from Special:BotPasswords on each wiki
+MEDIAWIKI_API_TOKEN_SALES=your-bot-password-here
+MEDIAWIKI_API_TOKEN_DEV=your-bot-password-here
 ```
 
 ### Single-Wiki Setup (Backwards Compatible)
 
 ```bash
+# .env
+
 MEDIAWIKI_BASE_URL=https://wiki.example.com
-MEDIAWIKI_API_TOKEN=your-token
+MEDIAWIKI_API_TOKEN=your-bot-password-here
 ```
 
 ### SSE Transport
@@ -90,22 +130,30 @@ Access at: `http://localhost:8009/sse`
 
 ### LibreChat Integration
 
-Add to LibreChat's `docker-compose.override.yml`:
+#### 1. Create a `.env` file for the MCP container
+
+Create a file at the same level as your LibreChat `docker-compose.yml`, e.g. `mediawiki-mcp.env`:
+
+```bash
+# mediawiki-mcp.env
+
+MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.example.com
+MEDIAWIKI_DEFAULT_WIKI=Sales
+MEDIAWIKI_API_TOKEN_SALES=your-bot-password-here
+MEDIAWIKI_API_TOKEN_DEV=your-bot-password-here
+MEDIAWIKI_MCP_PORT=8009
+MEDIAWIKI_MCP_HOST=0.0.0.0
+```
+
+#### 2. Add to `docker-compose.override.yml`
 
 ```yaml
-version: '3.8'
-
 services:
   mediawiki-mcp:
     build: /path/to/mediawiki-mcp
     container_name: mediawiki-mcp
-    environment:
-      - MEDIAWIKI_WIKIS=Sales:https://sales.wiki.com,Dev:https://dev.wiki.com
-      - MEDIAWIKI_DEFAULT_WIKI=Sales
-      - MEDIAWIKI_API_TOKEN_SALES=token1
-      - MEDIAWIKI_API_TOKEN_DEV=token2
-      - MEDIAWIKI_MCP_PORT=8009
-      - MEDIAWIKI_MCP_HOST=0.0.0.0
+    env_file:
+      - mediawiki-mcp.env
     networks:
       - librechat_network
     restart: unless-stopped
@@ -115,18 +163,20 @@ networks:
     external: true
 ```
 
-Configure in LibreChat MCP settings:
-```json
-{
-  "mcpServers": {
-    "mediawiki": {
-      "url": "http://mediawiki-mcp:8009/sse",
-      "name": "MediaWiki",
-      "description": "Access to your MediaWiki instances"
-    }
-  }
-}
+#### 3. Configure in `librechat.yaml`
+
+Add the MCP server to your LibreChat configuration:
+
+```yaml
+mcpServers:
+  mediawiki:
+    type: sse
+    url: http://mediawiki-mcp:8009/sse
+    title: "MediaWiki"
+    description: "Search and edit your MediaWiki instances"
 ```
+
+> Make sure `mediawiki-mcp` (the container name) is listed in LibreChat's `allowedDomains` if you have domain restrictions configured.
 
 ## Tools
 
