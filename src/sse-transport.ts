@@ -11,6 +11,7 @@ export async function createSSEServer(
   host: string = 'localhost'
 ): Promise<void> {
   const app = express();
+  const transports = new Map<string, SSEServerTransport>();
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'mediawiki-mcp', version: '2.0.0' });
@@ -28,15 +29,25 @@ export async function createSSEServer(
     registerAllTools(server, orchestrator);
 
     const transport = new SSEServerTransport('/message', res);
+    transports.set(transport.sessionId, transport);
     await server.connect(transport);
 
     req.on('close', () => {
       console.log('SSE connection closed');
+      transports.delete(transport.sessionId);
     });
   });
 
-  app.post('/message', express.json(), async (_req, res) => {
-    res.status(202).end();
+  app.post('/message', express.json(), async (req, res) => {
+    const sessionId = req.query.sessionId as string;
+    const transport = transports.get(sessionId);
+
+    if (!transport) {
+      res.status(404).json({ error: 'Session not found' });
+      return;
+    }
+
+    await transport.handlePostMessage(req, res);
   });
 
   app.listen(port, host, () => {

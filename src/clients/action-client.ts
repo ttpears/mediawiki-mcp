@@ -107,6 +107,11 @@ export class ActionClient {
 
         return response.data;
       } catch (err) {
+        // API-level errors (from our own throw above) are not retryable
+        if (err instanceof MediaWikiApiError) {
+          throw err;
+        }
+
         const axiosErr = err as AxiosError;
         const status = axiosErr.response?.status;
 
