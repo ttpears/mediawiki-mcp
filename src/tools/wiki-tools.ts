@@ -9,12 +9,13 @@ export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestra
     {
       name: z.string().describe('Unique name for the wiki'),
       url: z.string().url().describe('Base URL of the MediaWiki instance'),
-      token: z.string().optional().describe('API token for authentication'),
+      username: z.string().optional().describe('Bot username (e.g. User@BotName)'),
+      password: z.string().optional().describe('Bot password'),
     },
-    async ({ name, url, token }) => {
+    async ({ name, url, username, password }) => {
       const registry = orchestrator.getRegistry();
-      registry.addWiki({ name, baseUrl: url, apiToken: token });
-      orchestrator.addClientsForWiki({ name, baseUrl: url, apiToken: token });
+      registry.addWiki({ name, baseUrl: url, username, password });
+      await orchestrator.addClientsForWiki({ name, baseUrl: url, username, password });
       return {
         content: [{ type: 'text' as const, text: `Wiki "${name}" added successfully (${url})` }],
       };
@@ -54,7 +55,7 @@ export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestra
 
       const lines = wikis.map((wiki) => {
         const isDefault = defaultWiki && wiki.name === defaultWiki.name ? ' (default)' : '';
-        const authStatus = wiki.apiToken ? 'authenticated' : 'anonymous';
+        const authStatus = wiki.username ? 'authenticated' : 'anonymous';
         return `- ${wiki.name}${isDefault}: ${wiki.baseUrl} [${authStatus}]`;
       });
 

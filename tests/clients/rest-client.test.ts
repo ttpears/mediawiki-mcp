@@ -7,12 +7,15 @@ vi.mock('axios');
 
 const mockAxiosInstance = {
   request: vi.fn(),
+  interceptors: {
+    request: { use: vi.fn() },
+  },
 };
 
 vi.mocked(axios.create).mockReturnValue(mockAxiosInstance as any);
 
-function createClient(apiToken?: string): RestClient {
-  const client = new RestClient('testwiki', 'https://wiki.example.com', apiToken);
+function createClient(): RestClient {
+  const client = new RestClient('testwiki', 'https://wiki.example.com');
   client.setRetryDelay(0);
   return client;
 }
@@ -34,17 +37,6 @@ describe('RestClient', () => {
           'Accept': 'application/json',
         },
       });
-    });
-
-    it('includes Authorization header when apiToken provided', () => {
-      createClient('my-token');
-      expect(axios.create).toHaveBeenCalledWith(
-        expect.objectContaining({
-          headers: expect.objectContaining({
-            Authorization: 'Bearer my-token',
-          }),
-        })
-      );
     });
 
     it('strips trailing slashes from baseUrl', () => {

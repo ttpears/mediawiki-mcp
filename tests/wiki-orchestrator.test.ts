@@ -5,15 +5,50 @@ import { RestClient } from '../src/clients/rest-client.js';
 import { ActionClient } from '../src/clients/action-client.js';
 
 // Mock both client modules
-vi.mock('../src/clients/rest-client.js');
-vi.mock('../src/clients/action-client.js');
+vi.mock('../src/clients/rest-client.js', () => {
+  const RestClient = vi.fn().mockImplementation(function (this: any) {
+    this.search = vi.fn();
+    this.searchByPrefix = vi.fn();
+    this.getPage = vi.fn();
+    this.getPageHtml = vi.fn();
+    this.getPageHistory = vi.fn();
+    this.getRevision = vi.fn();
+    this.getFile = vi.fn();
+    this.createPage = vi.fn();
+    this.updatePage = vi.fn();
+    this.setCookieProvider = vi.fn();
+  });
+  return { RestClient };
+});
+vi.mock('../src/clients/action-client.js', () => {
+  const ActionClient = vi.fn().mockImplementation(function (this: any) {
+    this.listCategories = vi.fn();
+    this.getCategoryMembers = vi.fn();
+    this.getRecentChanges = vi.fn();
+    this.getPageLinks = vi.fn();
+    this.getBacklinks = vi.fn();
+    this.deletePage = vi.fn();
+    this.undeletePage = vi.fn();
+    this.uploadFromUrl = vi.fn();
+    this.uploadFile = vi.fn();
+    this.login = vi.fn().mockResolvedValue(undefined);
+    this.getCookies = vi.fn().mockReturnValue([]);
+  });
+  return { ActionClient };
+});
 
-function createRegistry(...wikis: Array<{ name: string; baseUrl: string }>): WikiRegistry {
+function createRegistry(...wikis: Array<{ name: string; baseUrl: string; username?: string; password?: string }>): WikiRegistry {
   const registry = new WikiRegistry();
   for (const wiki of wikis) {
     registry.addWiki(wiki);
   }
   return registry;
+}
+
+async function createOrchestrator(registry: WikiRegistry): Promise<WikiOrchestrator> {
+  const orch = new WikiOrchestrator(registry);
+  await orch.initialize();
+  return orch;
 }
 
 function getRestMock(orchestrator: WikiOrchestrator, wikiName: string): any {
@@ -47,22 +82,35 @@ describe('WikiOrchestrator', () => {
   });
 
   describe('construction', () => {
-    it('creates client pairs for each wiki in the registry', () => {
+    it('does not create clients until initialize() is called', () => {
       const registry = createRegistry(
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
       new WikiOrchestrator(registry);
 
-      expect(RestClient).toHaveBeenCalledTimes(2);
-      expect(ActionClient).toHaveBeenCalledTimes(2);
-      expect(RestClient).toHaveBeenCalledWith('Sales', 'https://sales.wiki.com', undefined);
-      expect(RestClient).toHaveBeenCalledWith('Dev', 'https://dev.wiki.com', undefined);
+      expect(RestClient).toHaveBeenCalledTimes(0);
+      expect(ActionClient).toHaveBeenCalledTimes(0);
     });
 
-    it('returns the registry via getRegistry()', () => {
+    it('creates client pairs for each wiki after initialize()', async () => {
+      const registry = createRegistry(
+        { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
+        { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
+      );
+      await createOrchestrator(registry);
+
+      expect(RestClient).toHaveBeenCalledTimes(2);
+      expect(ActionClient).toHaveBeenCalledTimes(2);
+      expect(RestClient).toHaveBeenCalledWith('Sales', 'https://sales.wiki.com');
+      expect(RestClient).toHaveBeenCalledWith('Dev', 'https://dev.wiki.com');
+      expect(ActionClient).toHaveBeenCalledWith('Sales', 'https://sales.wiki.com', undefined, undefined);
+      expect(ActionClient).toHaveBeenCalledWith('Dev', 'https://dev.wiki.com', undefined, undefined);
+    });
+
+    it('returns the registry via getRegistry()', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
       expect(orch.getRegistry()).toBe(registry);
     });
   });
@@ -73,7 +121,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const devRest = getRestMock(orch, 'Dev');
@@ -99,7 +147,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const devRest = getRestMock(orch, 'Dev');
@@ -120,7 +168,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const devRest = getRestMock(orch, 'Dev');
@@ -145,7 +193,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const devRest = getRestMock(orch, 'Dev');
@@ -167,7 +215,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       salesRest.getPage.mockResolvedValue({
@@ -190,7 +238,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const devRest = getRestMock(orch, 'Dev');
       devRest.getPage.mockResolvedValue({
@@ -209,7 +257,7 @@ describe('WikiOrchestrator', () => {
 
     it('includes HTML when includeHtml is true', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       salesRest.getPage.mockResolvedValue({
@@ -230,7 +278,7 @@ describe('WikiOrchestrator', () => {
   describe('unknown wiki', () => {
     it('throws when referencing an unknown wiki', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       await expect(() => orch.getPage('Test', { wiki: 'Unknown' })).rejects.toThrow('not registered');
     });
@@ -239,18 +287,19 @@ describe('WikiOrchestrator', () => {
   describe('addClientsForWiki / removeClientsForWiki', () => {
     it('adds clients for a new wiki', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
-      // Clear mocks from constructor
+      // Clear mocks from initialize
       vi.clearAllMocks();
 
       const newWiki = { name: 'New', baseUrl: 'https://new.wiki.com' };
       registry.addWiki(newWiki);
-      orch.addClientsForWiki(newWiki);
+      await orch.addClientsForWiki(newWiki);
 
       expect(RestClient).toHaveBeenCalledTimes(1);
-      expect(RestClient).toHaveBeenCalledWith('New', 'https://new.wiki.com', undefined);
+      expect(RestClient).toHaveBeenCalledWith('New', 'https://new.wiki.com');
       expect(ActionClient).toHaveBeenCalledTimes(1);
+      expect(ActionClient).toHaveBeenCalledWith('New', 'https://new.wiki.com', undefined, undefined);
     });
 
     it('removes clients for a wiki', async () => {
@@ -258,7 +307,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       registry.removeWiki('Dev');
       orch.removeClientsForWiki('Dev');
@@ -277,7 +326,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki deletePage', () => {
     it('delegates to action client', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       salesAction.deletePage.mockResolvedValue(undefined);
@@ -292,7 +341,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki undeletePage', () => {
     it('delegates to action client with reason', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       salesAction.undeletePage.mockResolvedValue(undefined);
@@ -307,7 +356,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki getPageHistory', () => {
     it('delegates to rest client', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const mockHistory = { revisions: [], latest: '123' };
@@ -324,7 +373,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki getRevision', () => {
     it('delegates to rest client', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesRest = getRestMock(orch, 'Sales');
       const mockRevision = { id: 42, page: { id: 1, key: 'Test', title: 'Test' }, size: 100, minor: false, timestamp: '', user: { id: 1, name: 'Admin' }, comment: '', delta: null };
@@ -340,7 +389,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki getPageLinks', () => {
     it('gets forward links', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       salesAction.getPageLinks.mockResolvedValue({ items: [{ ns: 0, title: 'Linked' }], hasMore: false });
@@ -353,7 +402,7 @@ describe('WikiOrchestrator', () => {
 
     it('gets backlinks', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       salesAction.getBacklinks.mockResolvedValue({ items: [{ pageid: 1, ns: 0, title: 'Linker' }], hasMore: false });
@@ -368,7 +417,7 @@ describe('WikiOrchestrator', () => {
   describe('single-wiki getCategoryMembers', () => {
     it('delegates to action client', async () => {
       const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       salesAction.getCategoryMembers.mockResolvedValue({
@@ -390,7 +439,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       const devAction = getActionMock(orch, 'Dev');
@@ -411,7 +460,7 @@ describe('WikiOrchestrator', () => {
         { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
         { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
       );
-      const orch = new WikiOrchestrator(registry);
+      const orch = await createOrchestrator(registry);
 
       const salesAction = getActionMock(orch, 'Sales');
       const devAction = getActionMock(orch, 'Dev');

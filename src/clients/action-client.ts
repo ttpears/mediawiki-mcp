@@ -16,24 +16,95 @@ export class ActionClient {
   private readonly maxRetries = 3;
   private retryDelayMs = 1000;
   private csrfToken: string | null = null;
+  private cookies: string[] = [];
+  private loggedIn = false;
+  private readonly username?: string;
+  private readonly password?: string;
 
-  constructor(wikiName: string, baseUrl: string, apiToken?: string) {
+  constructor(wikiName: string, baseUrl: string, username?: string, password?: string) {
     this.wikiName = wikiName;
-
-    const headers: Record<string, string> = {
-      'User-Agent': 'MediaWiki-MCP/2.0.0',
-      'Accept': 'application/json',
-    };
-
-    if (apiToken) {
-      headers['Authorization'] = `Bearer ${apiToken}`;
-    }
+    this.username = username;
+    this.password = password;
 
     this.client = axios.create({
       baseURL: `${baseUrl.replace(/\/+$/, '')}/api.php`,
       timeout: 30000,
-      headers,
+      headers: {
+        'User-Agent': 'MediaWiki-MCP/2.0.0',
+        'Accept': 'application/json',
+      },
     });
+
+    // Capture cookies from responses
+    this.client.interceptors.response.use((response) => {
+      const setCookies = response.headers['set-cookie'];
+      if (setCookies) {
+        for (const cookie of setCookies) {
+          const name = cookie.split('=')[0];
+          // Replace existing cookie with same name, or add new
+          this.cookies = this.cookies.filter(c => !c.startsWith(name + '='));
+          this.cookies.push(cookie.split(';')[0]);
+        }
+      }
+      return response;
+    });
+
+    // Send cookies with requests
+    this.client.interceptors.request.use((config) => {
+      if (this.cookies.length > 0) {
+        config.headers['Cookie'] = this.cookies.join('; ');
+      }
+      return config;
+    });
+  }
+
+  async login(): Promise<void> {
+    if (!this.username || !this.password) return;
+    if (this.loggedIn) return;
+
+    // Step 1: Get login token
+    const tokenResponse = await this.client.request<{
+      query: { tokens: { logintoken: string } };
+    }>({
+      method: 'GET',
+      params: { action: 'query', meta: 'tokens', type: 'login', format: 'json', formatversion: 2 },
+    });
+
+    const loginToken = tokenResponse.data.query.tokens.logintoken;
+
+    // Step 2: Login with bot password credentials
+    const params = new URLSearchParams();
+    params.set('action', 'login');
+    params.set('lgname', this.username);
+    params.set('lgpassword', this.password);
+    params.set('lgtoken', loginToken);
+    params.set('format', 'json');
+    params.set('formatversion', '2');
+
+    const loginResponse = await this.client.request<{
+      login: { result: string; reason?: string };
+    }>({
+      method: 'POST',
+      data: params.toString(),
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+    });
+
+    if (loginResponse.data.login.result !== 'Success') {
+      throw new MediaWikiApiError(
+        `Login failed: ${loginResponse.data.login.result} — ${loginResponse.data.login.reason ?? 'unknown reason'}`,
+        this.wikiName,
+        'POST action=login',
+      );
+    }
+
+    this.loggedIn = true;
+    // Clear cached CSRF token so it's fetched with the new session
+    this.csrfToken = null;
+  }
+
+  /** Get current session cookies (for sharing with RestClient) */
+  getCookies(): string[] {
+    return this.cookies;
   }
 
   /** Override retry delay for testing */

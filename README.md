@@ -6,6 +6,7 @@ A Model Context Protocol (MCP) server for MediaWiki instances with multi-wiki su
 
 - **Multi-Wiki Support**: Register named wikis, fan-out searches across all of them
 - **REST API**: Uses the modern `/rest.php/v1/` endpoints for page CRUD, search, and revisions
+- **Bot Password Auth**: Logs in via `Special:BotPasswords` with per-wiki credentials
 - **Page Operations**: Read, create, update, delete, and undelete pages
 - **Search**: Full-text and prefix search across all registered wikis
 - **File Operations**: Get file metadata, upload files from data or URL
@@ -35,11 +36,9 @@ npm run build
 ### Docker Installation
 
 ```bash
-docker-compose up -d
-
-# Or build manually
-docker build -t mediawiki-mcp .
-docker run -e MEDIAWIKI_WIKIS="Main:https://wiki.example.com" -p 8009:8009 mediawiki-mcp
+cp .env.example .env
+# Edit .env with your wiki URLs and credentials
+docker compose up -d
 ```
 
 ## Authentication
@@ -50,7 +49,7 @@ This server uses MediaWiki **bot passwords** for API authentication. Bot passwor
 
 1. Log in to your MediaWiki wiki as a user with the permissions you want the bot to have
 2. Navigate to **Special:BotPasswords** (e.g., `https://wiki.example.com/wiki/Special:BotPasswords`)
-3. Enter a bot name (e.g., `mcp-server`) and click **Create**
+3. Enter a bot name (e.g., `mcp`) and click **Create**
 4. Select the grants (permissions) the bot needs:
    - **Basic rights** — read pages (minimum for read-only access)
    - **Edit existing pages** — for `update-page`
@@ -60,56 +59,56 @@ This server uses MediaWiki **bot passwords** for API authentication. Bot passwor
    - **High-volume editing** — recommended if doing bulk operations
 5. Click **Create** to generate the password
 
-MediaWiki will display a username and password in this format:
+MediaWiki will display credentials in this format:
 
 ```
-Username: YourUsername@mcp-server
+Username: Admin@mcp
 Password: your-bot-password-here
 ```
 
-**The token for this server is the password portion only** (the long generated string). The username portion is used with `action=login` which this server handles internally via the bearer token mechanism.
-
-> If your MediaWiki instance uses bearer token authentication (e.g., via OAuth2 or a custom auth extension), use that token directly instead.
+You need **both** values. The username (`Admin@mcp`) goes in `MEDIAWIKI_USERNAME_*` and the password goes in `MEDIAWIKI_PASSWORD_*`. The server uses these to log in via the Action API (`action=login`) and maintains a cookie-based session for all subsequent requests.
 
 ### Repeat for Each Wiki
 
-If you have multiple wikis, create a bot password on each one. You'll end up with one token per wiki.
+If you have multiple wikis, create a bot password on each one. You'll have a username/password pair per wiki.
 
 ## Configuration
 
 ### Multi-Wiki Setup
 
-Create a `.env` file in the project root:
+Create a `.env` file (see `.env.example`):
 
 ```bash
-# .env
+# Register multiple wikis (Name:URL pairs, comma-separated)
+MEDIAWIKI_WIKIS=Sales:https://wiki.example.com,Dev:https://dev.wiki.example.com,Tech:https://tech.wiki.example.com,Content:https://content.wiki.example.com
 
-# Register multiple wikis with named labels
-MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.example.com
-
-# Set the default wiki (used when no wiki is specified)
+# Default wiki when none is specified
 MEDIAWIKI_DEFAULT_WIKI=Sales
 
-# Per-wiki API tokens (uppercase wiki name)
-# These are the bot passwords from Special:BotPasswords on each wiki
-MEDIAWIKI_API_TOKEN_SALES=your-bot-password-here
-MEDIAWIKI_API_TOKEN_DEV=your-bot-password-here
+# Per-wiki bot password credentials (uppercase wiki name)
+MEDIAWIKI_USERNAME_SALES=Admin@mcp
+MEDIAWIKI_PASSWORD_SALES=your-bot-password-here
+MEDIAWIKI_USERNAME_DEV=Admin@mcp
+MEDIAWIKI_PASSWORD_DEV=your-bot-password-here
+MEDIAWIKI_USERNAME_TECH=Admin@mcp
+MEDIAWIKI_PASSWORD_TECH=your-bot-password-here
+MEDIAWIKI_USERNAME_CONTENT=Admin@mcp
+MEDIAWIKI_PASSWORD_CONTENT=your-bot-password-here
 ```
 
-### Single-Wiki Setup (Backwards Compatible)
+### Single-Wiki Setup
 
 ```bash
-# .env
-
 MEDIAWIKI_BASE_URL=https://wiki.example.com
-MEDIAWIKI_API_TOKEN=your-bot-password-here
+MEDIAWIKI_USERNAME=Admin@mcp
+MEDIAWIKI_PASSWORD=your-bot-password-here
 ```
 
-### SSE Transport
+### HTTP Transport
 
 ```bash
 MEDIAWIKI_MCP_PORT=8009
-MEDIAWIKI_MCP_HOST=localhost
+MEDIAWIKI_MCP_HOST=0.0.0.0
 ```
 
 ## Usage
@@ -120,29 +119,32 @@ MEDIAWIKI_MCP_HOST=localhost
 npm start
 ```
 
-### SSE Mode (Remote)
+### HTTP Mode (Remote / Docker)
 
 ```bash
-npm run start:sse
+npm run start:http
 ```
 
-Access at: `http://localhost:8009/sse`
+Endpoint: `http://localhost:8009/mcp`
 
 ### LibreChat Integration
 
-#### 1. Create a `.env` file for the MCP container
+#### 1. Add wiki credentials to the LibreChat `.env`
 
-Create a file at the same level as your LibreChat `docker-compose.yml`, e.g. `mediawiki-mcp.env`:
+Add the `MEDIAWIKI_*` variables to your LibreChat `.env` file (e.g. `/srv/docker/LibreChat/.env`):
 
 ```bash
-# mediawiki-mcp.env
-
-MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.example.com
+# MediaWiki MCP
+MEDIAWIKI_WIKIS=Sales:https://wiki.example.com,Dev:https://dev.wiki.example.com,Tech:https://tech.wiki.example.com,Content:https://content.wiki.example.com
 MEDIAWIKI_DEFAULT_WIKI=Sales
-MEDIAWIKI_API_TOKEN_SALES=your-bot-password-here
-MEDIAWIKI_API_TOKEN_DEV=your-bot-password-here
-MEDIAWIKI_MCP_PORT=8009
-MEDIAWIKI_MCP_HOST=0.0.0.0
+MEDIAWIKI_USERNAME_SALES=Admin@mcp
+MEDIAWIKI_PASSWORD_SALES=your-bot-password-here
+MEDIAWIKI_USERNAME_DEV=Admin@mcp
+MEDIAWIKI_PASSWORD_DEV=your-bot-password-here
+MEDIAWIKI_USERNAME_TECH=Admin@mcp
+MEDIAWIKI_PASSWORD_TECH=your-bot-password-here
+MEDIAWIKI_USERNAME_CONTENT=Admin@mcp
+MEDIAWIKI_PASSWORD_CONTENT=your-bot-password-here
 ```
 
 #### 2. Add to `docker-compose.override.yml`
@@ -150,33 +152,29 @@ MEDIAWIKI_MCP_HOST=0.0.0.0
 ```yaml
 services:
   mediawiki-mcp:
-    build: /path/to/mediawiki-mcp
+    build: /srv/docker/mediawiki-mcp
     container_name: mediawiki-mcp
     env_file:
-      - mediawiki-mcp.env
-    networks:
-      - librechat_network
+      - .env
+    environment:
+      - MEDIAWIKI_MCP_HOST=0.0.0.0
     restart: unless-stopped
-
-networks:
-  librechat_network:
-    external: true
+    networks:
+      - default
 ```
 
-#### 3. Configure in `librechat.yaml`
+This builds the container from source and starts it alongside LibreChat. No need to install Node.js on the host — Docker handles the build.
 
-Add the MCP server to your LibreChat configuration:
+#### 3. Configure in `librechat.yaml`
 
 ```yaml
 mcpServers:
   mediawiki:
-    type: sse
-    url: http://mediawiki-mcp:8009/sse
-    title: "MediaWiki"
-    description: "Search and edit your MediaWiki instances"
+    type: streamable-http
+    url: http://mediawiki-mcp:8009/mcp
 ```
 
-> Make sure `mediawiki-mcp` (the container name) is listed in LibreChat's `allowedDomains` if you have domain restrictions configured.
+> If you have `allowedDomains` configured in LibreChat, add `mediawiki-mcp` to the list.
 
 ## Tools
 
@@ -186,7 +184,7 @@ All tools that accept a `wiki` parameter will use the default wiki when omitted.
 
 | Tool | Description |
 |------|-------------|
-| `add-wiki` | Register a new named wiki (name, url, token) |
+| `add-wiki` | Register a new named wiki (name, url, username, password) |
 | `remove-wiki` | Remove a registered wiki |
 | `list-wikis` | Show all registered wikis |
 
@@ -249,7 +247,7 @@ All tools that accept a `wiki` parameter will use the default wiki when omitted.
 npm run dev        # Watch mode
 npm run type-check # Type checking
 npm run build      # Build
-npm test           # Run tests (86 tests)
+npm test           # Run tests (85 tests)
 npm run test:watch # Watch mode tests
 ```
 
@@ -257,15 +255,15 @@ npm run test:watch # Watch mode tests
 
 ```
 src/
-├── index.ts                # Entry point
+├── index.ts                # Entry point (stdio)
 ├── stdio.ts                # Stdio transport
-├── sse-transport.ts        # SSE transport
+├── http-transport.ts       # Streamable HTTP transport
 ├── wiki-registry.ts        # Named wiki storage and env parsing
 ├── wiki-orchestrator.ts    # Fan-out routing and client management
 ├── types.ts                # TypeScript types
 ├── clients/
 │   ├── rest-client.ts      # REST API (/rest.php/v1/)
-│   └── action-client.ts    # Action API (/api.php)
+│   └── action-client.ts    # Action API (/api.php) + bot password login
 └── tools/
     ├── index.ts            # Tool registration barrel
     ├── wiki-tools.ts       # Wiki management
@@ -279,12 +277,14 @@ src/
 ```
 
 ```
-Transport Layer (stdio.ts, sse-transport.ts)
+Transport Layer (stdio.ts, http-transport.ts)
          ↓
    WikiOrchestrator (fan-out / routing)
      ↓              ↓
 RestClient      ActionClient
 (/rest.php/v1)  (/api.php)
+     ↑              ↑
+     └── shared session cookies (bot password login)
 ```
 
 ## License

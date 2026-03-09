@@ -2,7 +2,8 @@
 export interface WikiConfig {
   name: string;
   baseUrl: string;
-  apiToken?: string;
+  username?: string;
+  password?: string;
 }
 
 // Parsed from environment or add-wiki calls

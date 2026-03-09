@@ -76,9 +76,10 @@ export class WikiRegistry {
         }
         const name = entry.substring(0, colonIdx).trim();
         const baseUrl = entry.substring(colonIdx + 1).trim();
-        const tokenKey = `MEDIAWIKI_API_TOKEN_${name.toUpperCase()}`;
-        const apiToken = env[tokenKey];
-        registry.addWiki({ name, baseUrl, ...(apiToken ? { apiToken } : {}) });
+        const upperName = name.toUpperCase();
+        const username = env[`MEDIAWIKI_USERNAME_${upperName}`];
+        const password = env[`MEDIAWIKI_PASSWORD_${upperName}`];
+        registry.addWiki({ name, baseUrl, ...(username && password ? { username, password } : {}) });
       }
 
       const defaultWiki = env['MEDIAWIKI_DEFAULT_WIKI'];
@@ -92,8 +93,9 @@ export class WikiRegistry {
     // Fallback: single wiki from MEDIAWIKI_BASE_URL
     const baseUrl = env['MEDIAWIKI_BASE_URL'];
     if (baseUrl) {
-      const apiToken = env['MEDIAWIKI_API_TOKEN'];
-      registry.addWiki({ name: 'default', baseUrl, ...(apiToken ? { apiToken } : {}) });
+      const username = env['MEDIAWIKI_USERNAME'];
+      const password = env['MEDIAWIKI_PASSWORD'];
+      registry.addWiki({ name: 'default', baseUrl, ...(username && password ? { username, password } : {}) });
       return registry;
     }
 

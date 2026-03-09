@@ -106,22 +106,26 @@ describe('WikiRegistry', () => {
   });
 
   describe('fromEnvironment', () => {
-    it('parses MEDIAWIKI_WIKIS with tokens', () => {
+    it('parses MEDIAWIKI_WIKIS with credentials', () => {
       const reg = WikiRegistry.fromEnvironment({
         MEDIAWIKI_WIKIS: 'Sales:https://sales.wiki.com,Dev:https://dev.wiki.com',
-        MEDIAWIKI_API_TOKEN_SALES: 'token1',
-        MEDIAWIKI_API_TOKEN_DEV: 'token2',
+        MEDIAWIKI_USERNAME_SALES: 'user1',
+        MEDIAWIKI_PASSWORD_SALES: 'pass1',
+        MEDIAWIKI_USERNAME_DEV: 'user2',
+        MEDIAWIKI_PASSWORD_DEV: 'pass2',
       });
       expect(reg.getAllWikis()).toHaveLength(2);
       expect(reg.getWiki('Sales')).toEqual({
         name: 'Sales',
         baseUrl: 'https://sales.wiki.com',
-        apiToken: 'token1',
+        username: 'user1',
+        password: 'pass1',
       });
       expect(reg.getWiki('Dev')).toEqual({
         name: 'Dev',
         baseUrl: 'https://dev.wiki.com',
-        apiToken: 'token2',
+        username: 'user2',
+        password: 'pass2',
       });
       // First wiki is default
       expect(reg.getDefaultWiki()?.name).toBe('Sales');
@@ -138,13 +142,15 @@ describe('WikiRegistry', () => {
     it('falls back to MEDIAWIKI_BASE_URL', () => {
       const reg = WikiRegistry.fromEnvironment({
         MEDIAWIKI_BASE_URL: 'https://my.wiki.com',
-        MEDIAWIKI_API_TOKEN: 'mytoken',
+        MEDIAWIKI_USERNAME: 'user1',
+        MEDIAWIKI_PASSWORD: 'pass1',
       });
       expect(reg.getAllWikis()).toHaveLength(1);
       expect(reg.getWiki('default')).toEqual({
         name: 'default',
         baseUrl: 'https://my.wiki.com',
-        apiToken: 'mytoken',
+        username: 'user1',
+        password: 'pass1',
       });
     });
 

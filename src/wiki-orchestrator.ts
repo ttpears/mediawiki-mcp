@@ -30,15 +30,26 @@ export class WikiOrchestrator {
 
   constructor(registry: WikiRegistry) {
     this.registry = registry;
-    for (const wiki of registry.getAllWikis()) {
-      this.addClientsForWiki(wiki);
+  }
+
+  /** Initialize all wiki clients (login where credentials exist) */
+  async initialize(): Promise<void> {
+    for (const wiki of this.registry.getAllWikis()) {
+      await this.addClientsForWiki(wiki);
     }
   }
 
-  addClientsForWiki(wiki: WikiConfig): void {
+  async addClientsForWiki(wiki: WikiConfig): Promise<void> {
     const key = wiki.name.toLowerCase();
-    const rest = new RestClient(wiki.name, wiki.baseUrl, wiki.apiToken);
-    const action = new ActionClient(wiki.name, wiki.baseUrl, wiki.apiToken);
+    const action = new ActionClient(wiki.name, wiki.baseUrl, wiki.username, wiki.password);
+    const rest = new RestClient(wiki.name, wiki.baseUrl);
+
+    // Share session cookies from ActionClient → RestClient
+    rest.setCookieProvider(() => action.getCookies());
+
+    // Login if credentials are provided
+    await action.login();
+
     this.clients.set(key, { config: wiki, rest, action });
   }
 

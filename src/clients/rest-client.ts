@@ -13,24 +13,35 @@ export class RestClient {
   private readonly wikiName: string;
   private readonly maxRetries = 3;
   private retryDelayMs = 1000;
+  private cookieProvider?: () => string[];
 
-  constructor(wikiName: string, baseUrl: string, apiToken?: string) {
+  constructor(wikiName: string, baseUrl: string) {
     this.wikiName = wikiName;
-
-    const headers: Record<string, string> = {
-      'User-Agent': 'MediaWiki-MCP/2.0.0',
-      'Accept': 'application/json',
-    };
-
-    if (apiToken) {
-      headers['Authorization'] = `Bearer ${apiToken}`;
-    }
 
     this.client = axios.create({
       baseURL: `${baseUrl.replace(/\/+$/, '')}/rest.php/v1`,
       timeout: 30000,
-      headers,
+      headers: {
+        'User-Agent': 'MediaWiki-MCP/2.0.0',
+        'Accept': 'application/json',
+      },
     });
+
+    // Send cookies with requests (shared from ActionClient login session)
+    this.client.interceptors.request.use((config) => {
+      if (this.cookieProvider) {
+        const cookies = this.cookieProvider();
+        if (cookies.length > 0) {
+          config.headers['Cookie'] = cookies.join('; ');
+        }
+      }
+      return config;
+    });
+  }
+
+  /** Set a cookie provider so this client shares the ActionClient's session */
+  setCookieProvider(provider: () => string[]): void {
+    this.cookieProvider = provider;
   }
 
   /** Override retry delay for testing */

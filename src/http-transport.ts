@@ -52,6 +52,7 @@ export async function createHTTPServer(
       });
 
       const orchestrator = new WikiOrchestrator(registry);
+      await orchestrator.initialize();
       registerAllTools(server, orchestrator);
 
       await server.connect(transport);
