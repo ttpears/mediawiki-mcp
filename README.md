@@ -1,58 +1,73 @@
 # MediaWiki MCP Server
 
-A Model Context Protocol (MCP) server for read-only access to MediaWiki instances. Provides comprehensive tools for searching, reading, browsing categories, and accessing page history.
+A Model Context Protocol (MCP) server for MediaWiki instances with multi-wiki support. Uses the modern REST API (MediaWiki 1.42+) and Action API for full read/write access across multiple named wikis.
 
 ## Features
 
-- **Search Pages**: Full-text search with snippets and metadata
-- **Read Content**: Retrieve page content in wikitext or HTML
-- **Page History**: Access revision history with timestamps and authors
-- **Category Browsing**: List categories and their members
-- **Recent Changes**: Track wiki activity
-- **Link Analysis**: Explore page connections and backlinks
+- **Multi-Wiki Support**: Register named wikis, fan-out searches across all of them
+- **REST API**: Uses the modern `/rest.php/v1/` endpoints for page CRUD, search, and revisions
+- **Page Operations**: Read, create, update, delete, and undelete pages
+- **Search**: Full-text and prefix search across all registered wikis
+- **File Operations**: Get file metadata, upload files from data or URL
+- **Category Browsing**: List categories and their members with pagination
+- **History & Revisions**: Access revision history, view individual revisions
+- **Recent Changes**: Track wiki activity across all wikis
+- **Link Analysis**: Explore outgoing links and backlinks
+- **Pagination**: All list endpoints support continuation tokens
+- **Retry Logic**: Exponential backoff on 429/5xx errors
 
 ## Installation
 
 ### Prerequisites
 
 - Node.js 18 or higher
-- npm or yarn
+- MediaWiki 1.42 or higher
 
 ### Local Installation
 
 ```bash
-# Clone repository
-git clone <repository-url>
+git clone https://github.com/ttpears/mediawiki-mcp.git
 cd mediawiki-mcp
-
-# Install dependencies
 npm install
-
-# Build TypeScript
 npm run build
-
-# Configure environment
-cp .env.example .env
-# Edit .env with your MediaWiki URL
 ```
 
 ### Docker Installation
 
 ```bash
-# Using Docker Compose
 docker-compose up -d
 
 # Or build manually
 docker build -t mediawiki-mcp .
-docker run -e MEDIAWIKI_BASE_URL=https://wiki.example.com -p 8009:8009 mediawiki-mcp
+docker run -e MEDIAWIKI_WIKIS="Main:https://wiki.example.com" -p 8009:8009 mediawiki-mcp
 ```
 
 ## Configuration
 
-Set environment variables in `.env`:
+### Multi-Wiki Setup
+
+```bash
+# Register multiple wikis with named labels
+MEDIAWIKI_WIKIS=Sales:https://sales.wiki.example.com,Dev:https://dev.wiki.example.com
+
+# Set the default wiki (used when no wiki is specified)
+MEDIAWIKI_DEFAULT_WIKI=Sales
+
+# Per-wiki API tokens (uppercase wiki name)
+MEDIAWIKI_API_TOKEN_SALES=your-sales-token
+MEDIAWIKI_API_TOKEN_DEV=your-dev-token
+```
+
+### Single-Wiki Setup (Backwards Compatible)
 
 ```bash
 MEDIAWIKI_BASE_URL=https://wiki.example.com
+MEDIAWIKI_API_TOKEN=your-token
+```
+
+### SSE Transport
+
+```bash
 MEDIAWIKI_MCP_PORT=8009
 MEDIAWIKI_MCP_HOST=localhost
 ```
@@ -62,22 +77,12 @@ MEDIAWIKI_MCP_HOST=localhost
 ### Stdio Mode (Local)
 
 ```bash
-# Set environment variable
-export MEDIAWIKI_BASE_URL=https://wiki.example.com
-
-# Run server
 npm start
 ```
 
 ### SSE Mode (Remote)
 
 ```bash
-# Set environment variables
-export MEDIAWIKI_BASE_URL=https://wiki.example.com
-export MEDIAWIKI_MCP_PORT=8009
-export MEDIAWIKI_MCP_HOST=0.0.0.0
-
-# Run SSE server
 npm run start:sse
 ```
 
@@ -95,7 +100,10 @@ services:
     build: /path/to/mediawiki-mcp
     container_name: mediawiki-mcp
     environment:
-      - MEDIAWIKI_BASE_URL=https://wiki.example.com
+      - MEDIAWIKI_WIKIS=Sales:https://sales.wiki.com,Dev:https://dev.wiki.com
+      - MEDIAWIKI_DEFAULT_WIKI=Sales
+      - MEDIAWIKI_API_TOKEN_SALES=token1
+      - MEDIAWIKI_API_TOKEN_DEV=token2
       - MEDIAWIKI_MCP_PORT=8009
       - MEDIAWIKI_MCP_HOST=0.0.0.0
     networks:
@@ -114,7 +122,7 @@ Configure in LibreChat MCP settings:
     "mediawiki": {
       "url": "http://mediawiki-mcp:8009/sse",
       "name": "MediaWiki",
-      "description": "Access to your MediaWiki instance"
+      "description": "Access to your MediaWiki instances"
     }
   }
 }
@@ -122,167 +130,112 @@ Configure in LibreChat MCP settings:
 
 ## Tools
 
-### 1. search_pages
-Search wiki pages with full-text search.
+All tools that accept a `wiki` parameter will use the default wiki when omitted. Search and listing tools fan out across all registered wikis when `wiki` is not specified.
 
-**Parameters:**
-- `query` (string): Search query
-- `limit` (number, optional): Max results (default: 10)
-- `namespace` (number, optional): Namespace filter
+### Wiki Management
 
-**Example:**
-```json
-{
-  "query": "typescript",
-  "limit": 5
-}
-```
+| Tool | Description |
+|------|-------------|
+| `add-wiki` | Register a new named wiki (name, url, token) |
+| `remove-wiki` | Remove a registered wiki |
+| `list-wikis` | Show all registered wikis |
 
-### 2. get_page
-Retrieve full page content and metadata.
+### Search (Fan-Out)
 
-**Parameters:**
-- `title` (string): Page title
-- `include_html` (boolean, optional): Return HTML instead of wikitext
+| Tool | Description |
+|------|-------------|
+| `search-pages` | Full-text search across wikis |
+| `search-pages-by-prefix` | Title prefix search across wikis |
 
-**Example:**
-```json
-{
-  "title": "Main Page",
-  "include_html": false
-}
-```
+**Parameters:** `query`, `wiki?`, `limit?`
 
-### 3. get_page_history
-Get revision history for a page.
+### Page Operations (Single Wiki)
 
-**Parameters:**
-- `title` (string): Page title
-- `limit` (number, optional): Number of revisions (default: 20)
+| Tool | Description |
+|------|-------------|
+| `get-page` | Get page content (wikitext or HTML) and metadata |
+| `create-page` | Create a new page |
+| `update-page` | Edit an existing page (requires `latest_timestamp` from get-page) |
+| `delete-page` | Delete a page |
+| `undelete-page` | Restore a deleted page |
 
-**Example:**
-```json
-{
-  "title": "Main Page",
-  "limit": 10
-}
-```
+### History (Single Wiki)
 
-### 4. list_categories
-List all wiki categories.
+| Tool | Description |
+|------|-------------|
+| `get-page-history` | Paginated revision list for a page |
+| `get-revision` | Get details of a specific revision by ID |
 
-**Parameters:**
-- `prefix` (string, optional): Filter by prefix
-- `limit` (number, optional): Max results (default: 20)
+### Categories
 
-**Example:**
-```json
-{
-  "prefix": "Doc",
-  "limit": 10
-}
-```
+| Tool | Description |
+|------|-------------|
+| `list-categories` | List categories with member counts (fan-out) |
+| `get-category-members` | List pages in a category (single wiki, paginated) |
 
-### 5. get_category_members
-List pages in a category.
+### Files (Single Wiki)
 
-**Parameters:**
-- `category` (string): Category name
-- `limit` (number, optional): Max results (default: 50)
-- `type` (string, optional): Filter by type (page/subcat/file)
+| Tool | Description |
+|------|-------------|
+| `get-file` | Get file metadata, dimensions, and URLs |
+| `upload-file` | Upload from base64-encoded data |
+| `upload-file-from-url` | Upload from a remote URL |
 
-**Example:**
-```json
-{
-  "category": "Documentation",
-  "type": "page"
-}
-```
+### Activity (Fan-Out)
 
-### 6. get_recent_changes
-List recent wiki changes.
+| Tool | Description |
+|------|-------------|
+| `get-recent-changes` | Recent edits, creations, and deletions across wikis |
 
-**Parameters:**
-- `limit` (number, optional): Max results (default: 20)
-- `namespace` (number, optional): Namespace filter
-- `type` (string, optional): Change type (edit/new/log)
+### Links (Single Wiki)
 
-**Example:**
-```json
-{
-  "limit": 10,
-  "type": "edit"
-}
-```
-
-### 7. get_page_links
-Get links from or to a page.
-
-**Parameters:**
-- `title` (string): Page title
-- `direction` (string): "from" or "to" (default: "from")
-- `limit` (number, optional): Max results (default: 50)
-
-**Example:**
-```json
-{
-  "title": "Main Page",
-  "direction": "to"
-}
-```
+| Tool | Description |
+|------|-------------|
+| `get-page-links` | Get outgoing links or backlinks for a page |
 
 ## Development
 
 ```bash
-# Watch mode
-npm run dev
-
-# Type checking
-npm run type-check
-
-# Build
-npm run build
-
-# Test API connection
-curl http://localhost:8009/health
+npm run dev        # Watch mode
+npm run type-check # Type checking
+npm run build      # Build
+npm test           # Run tests (86 tests)
+npm run test:watch # Watch mode tests
 ```
 
 ## Architecture
 
 ```
-mediawiki-mcp/
-├── src/
-│   ├── index.ts              # Main entry point
-│   ├── stdio.ts              # Stdio transport
-│   ├── sse-transport.ts      # SSE transport
-│   ├── mediawiki-client.ts   # API client
-│   ├── mediawiki-tools.ts    # Tool definitions
-│   └── types.ts              # TypeScript types
-└── dist/                     # Compiled output
+src/
+├── index.ts                # Entry point
+├── stdio.ts                # Stdio transport
+├── sse-transport.ts        # SSE transport
+├── wiki-registry.ts        # Named wiki storage and env parsing
+├── wiki-orchestrator.ts    # Fan-out routing and client management
+├── types.ts                # TypeScript types
+├── clients/
+│   ├── rest-client.ts      # REST API (/rest.php/v1/)
+│   └── action-client.ts    # Action API (/api.php)
+└── tools/
+    ├── index.ts            # Tool registration barrel
+    ├── wiki-tools.ts       # Wiki management
+    ├── search-tools.ts     # Search (fan-out)
+    ├── page-tools.ts       # Page CRUD
+    ├── history-tools.ts    # Revision history
+    ├── category-tools.ts   # Categories
+    ├── link-tools.ts       # Links and backlinks
+    ├── file-tools.ts       # File operations
+    └── activity-tools.ts   # Recent changes
 ```
-
-### Three-Tier Architecture
 
 ```
 Transport Layer (stdio.ts, sse-transport.ts)
-    ↓
-Tools Layer (mediawiki-tools.ts)
-    ↓
-Client Layer (mediawiki-client.ts)
+         ↓
+   WikiOrchestrator (fan-out / routing)
+     ↓              ↓
+RestClient      ActionClient
+(/rest.php/v1)  (/api.php)
 ```
-
-## MediaWiki API
-
-All API calls use: `{baseUrl}/api.php`
-
-Supported MediaWiki API actions:
-- `action=query&list=search` - Full-text search
-- `action=query&prop=revisions` - Page content and history
-- `action=query&list=allcategories` - List categories
-- `action=query&list=categorymembers` - Category contents
-- `action=query&list=recentchanges` - Recent changes
-- `action=query&prop=links` - Page links
-- `action=query&list=backlinks` - Backlinks
 
 ## License
 
@@ -291,7 +244,3 @@ MIT
 ## Contributing
 
 Contributions welcome! Please open issues or pull requests.
-
-## Support
-
-For issues or questions, please open an issue on GitHub.
