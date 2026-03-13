@@ -34,8 +34,19 @@ export class WikiOrchestrator {
 
   /** Initialize all wiki clients (login where credentials exist) */
   async initialize(): Promise<void> {
+    const warnings: string[] = [];
     for (const wiki of this.registry.getAllWikis()) {
-      await this.addClientsForWiki(wiki);
+      try {
+        await this.addClientsForWiki(wiki);
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        warnings.push(`[${wiki.name}] Login failed (wiki will be available without auth): ${msg}`);
+        // Still register the clients so the wiki is usable for read operations
+        this.addClientsForWikiNoAuth(wiki);
+      }
+    }
+    if (warnings.length > 0) {
+      console.error(warnings.join('\n'));
     }
   }
 
@@ -51,6 +62,13 @@ export class WikiOrchestrator {
     // Login if credentials are provided
     await action.login();
 
+    this.clients.set(key, { config: wiki, rest, action });
+  }
+
+  private addClientsForWikiNoAuth(wiki: WikiConfig): void {
+    const key = wiki.name.toLowerCase();
+    const action = new ActionClient(wiki.name, wiki.baseUrl);
+    const rest = new RestClient(wiki.name, wiki.baseUrl);
     this.clients.set(key, { config: wiki, rest, action });
   }
 
