@@ -51,12 +51,14 @@ This server uses MediaWiki **bot passwords** for API authentication. Bot passwor
 2. Navigate to **Special:BotPasswords** (e.g., `https://wiki.example.com/wiki/Special:BotPasswords`)
 3. Enter a bot name (e.g., `mcp`) and click **Create**
 4. Select the grants (permissions) the bot needs:
-   - **Basic rights** — read pages (minimum for read-only access)
+   - **High-volume (bot) access** — required for API usage
    - **Edit existing pages** — for `update-page`
-   - **Create, edit, and move pages** — for `create-page`
+   - **Edit protected pages** — if the bot needs to edit protected pages
+   - **Create, edit, and move pages** — for `create-page`, `update-page`
    - **Delete pages and revisions** — for `delete-page` / `undelete-page`
-   - **Upload new files** — for `upload-file` / `upload-file-from-url`
-   - **High-volume editing** — recommended if doing bulk operations
+   - **Upload, replace, and move files** — for `upload-file` / `upload-file-from-url`
+   - **Patrol changes to pages** — if using activity monitoring
+   - **Rollback changes to pages** — if using rollback features
 5. Click **Create** to generate the password
 
 MediaWiki will display credentials in this format:
