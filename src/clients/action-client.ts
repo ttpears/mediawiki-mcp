@@ -396,12 +396,13 @@ export class ActionClient {
     };
   }
 
-  async deletePage(title: string): Promise<void> {
+  async deletePage(title: string, reason?: string): Promise<void> {
     const token = await this.getCsrfToken();
 
     await this.request<{ delete: { title: string } }>('POST', {
       action: 'delete',
       title,
+      reason,
       token,
     });
   }

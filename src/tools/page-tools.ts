@@ -2,6 +2,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { applyPatch } from 'diff';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
+import { lintWikitext, formatLintWarnings } from '../wikitext-lint.js';
+
+function attributeSummary(summary: string, user?: string): string {
+  if (!user) return summary;
+  return `${summary} (on behalf of ${user})`;
+}
 
 function formatEditResult(
   result: { result: string; title: string; newrevid?: number; nochange?: boolean },
@@ -50,6 +56,15 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         lines.push('', '--- HTML ---', result.html);
       }
 
+      // Lint wikitext for legacy patterns
+      if (page.source && page.content_model === 'wikitext') {
+        const warnings = lintWikitext(page.source);
+        const lintOutput = formatLintWarnings(warnings);
+        if (lintOutput) {
+          lines.push(lintOutput);
+        }
+      }
+
       return {
         content: [{ type: 'text' as const, text: lines.join('\n') }],
       };
@@ -58,15 +73,16 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'create-page',
-    'Create a new wiki page',
+    'Create a new wiki page. Requires the requesting user\'s name for edit attribution.',
     {
       title: z.string().describe('Page title'),
       content: z.string().describe('Page content (wikitext)'),
       summary: z.string().describe('Edit summary'),
+      user: z.string().describe('Name of the person requesting this edit (for attribution in edit summary). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, content, summary, wiki }) => {
-      const result = await orchestrator.createPage(title, content, summary, { wiki });
+    async ({ title, content, summary, user, wiki }) => {
+      const result = await orchestrator.createPage(title, content, attributeSummary(summary, user), { wiki });
       return {
         content: [{
           type: 'text' as const,
@@ -78,7 +94,18 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'update-page',
-    'Update a wiki page. Supports multiple edit modes to avoid sending full page content. Use diff (unified diff format) for targeted edits (preferred for large pages), section for editing a specific section, append/prepend for adding content, or content for full replacement.',
+    `Update a wiki page. Supports multiple edit modes to avoid sending full page content. Use diff (unified diff format) for targeted edits (preferred for large pages), section for editing a specific section, append/prepend for adding content, or content for full replacement.
+
+WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
+• Tables: Use {| class="wikitable" with |- row separators (not |---- or border="1" or HTML <table>)
+• Bold/italic: Use '''bold''' and ''italic'' (not <b> or <i> HTML tags)
+• Headings: Use == Level 2 == through ====== Level 6 ====== (skip level 1)
+• Lists: Use * for bullets, # for numbered, ; and : for definition lists
+• Links: Use [URL description] for external links (not bare URLs)
+• Avoid: <center>, <font>, <tt>, <strike>, <big>, <u> — all deprecated
+• Avoid: Deep colon indentation (::) — use proper lists or {{indent}} template
+• Avoid: Excessive <br> tags — use proper paragraph/list markup instead
+• Avoid: Inline CSS on divs — prefer templates or CSS classes`,
     {
       title: z.string().describe('Page title'),
       content: z.string().optional().describe('Full page content for complete replacement. Avoid for large pages — use diff instead'),
@@ -87,9 +114,11 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
       append: z.string().optional().describe('Text to append to the end of the page'),
       prepend: z.string().optional().describe('Text to prepend to the beginning of the page'),
       summary: z.string().describe('Edit summary'),
+      user: z.string().describe('Name of the person requesting this edit (for attribution in edit summary). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, content, diff, section, append, prepend, summary, wiki }) => {
+    async ({ title, content, diff, section, append, prepend, summary, user, wiki }) => {
+      const attrSummary = attributeSummary(summary, user);
       // Validate that exactly one edit mode is specified
       const modes = [
         content !== undefined && section === undefined ? 'content' : null,
@@ -133,7 +162,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         const result = await orchestrator.editPage(title, {
           wiki,
           text: patched,
-          summary,
+          summary: attrSummary,
           baseTimestamp: pageData.timestamp,
         });
         return {
@@ -150,7 +179,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
           wiki,
           text: content,
           section,
-          summary,
+          summary: attrSummary,
         });
         return {
           content: [{
@@ -165,7 +194,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         const result = await orchestrator.editPage(title, {
           wiki,
           appendText: append,
-          summary,
+          summary: attrSummary,
         });
         return {
           content: [{
@@ -180,7 +209,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         const result = await orchestrator.editPage(title, {
           wiki,
           prependText: prepend,
-          summary,
+          summary: attrSummary,
         });
         return {
           content: [{
@@ -194,7 +223,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
       const result = await orchestrator.editPage(title, {
         wiki,
         text: content,
-        summary,
+        summary: attrSummary,
       });
       return {
         content: [{
@@ -207,13 +236,16 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'delete-page',
-    'Delete a wiki page',
+    'Delete a wiki page. Requires the requesting user\'s name for attribution.',
     {
       title: z.string().describe('Page title to delete'),
+      reason: z.string().optional().describe('Reason for deletion'),
+      user: z.string().describe('Name of the person requesting this deletion (for attribution). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, wiki }) => {
-      const result = await orchestrator.deletePage(title, { wiki });
+    async ({ title, reason, user, wiki }) => {
+      const attrReason = attributeSummary(reason ?? 'Deleted via MCP', user);
+      const result = await orchestrator.deletePage(title, { wiki, reason: attrReason });
       return {
         content: [{ type: 'text' as const, text: `Page "${title}" deleted on ${result.wiki}.` }],
       };
@@ -222,14 +254,16 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'undelete-page',
-    'Restore a deleted wiki page',
+    'Restore a deleted wiki page. Requires the requesting user\'s name for attribution.',
     {
       title: z.string().describe('Page title to restore'),
       reason: z.string().optional().describe('Reason for restoring the page'),
+      user: z.string().describe('Name of the person requesting this restoration (for attribution). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, reason, wiki }) => {
-      const result = await orchestrator.undeletePage(title, reason, { wiki });
+    async ({ title, reason, user, wiki }) => {
+      const attrReason = attributeSummary(reason ?? 'Restored via MCP', user);
+      const result = await orchestrator.undeletePage(title, attrReason, { wiki });
       return {
         content: [{ type: 'text' as const, text: `Page "${title}" restored on ${result.wiki}.` }],
       };

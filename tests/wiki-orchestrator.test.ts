@@ -336,7 +336,7 @@ describe('WikiOrchestrator', () => {
       const result = await orch.deletePage('Old Page');
 
       expect(result.wiki).toBe('Sales');
-      expect(salesAction.deletePage).toHaveBeenCalledWith('Old Page');
+      expect(salesAction.deletePage).toHaveBeenCalledWith('Old Page', undefined);
     });
   });
 

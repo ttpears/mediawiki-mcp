@@ -47,17 +47,19 @@ export function registerFileTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'upload-file',
-    'Upload a file from base64-encoded data',
+    'Upload a file from base64-encoded data. Requires the requesting user\'s name for attribution.',
     {
       filename: z.string().describe('Target filename on the wiki'),
       data: z.string().describe('Base64-encoded file content'),
       description: z.string().describe('File description (wikitext)'),
       comment: z.string().optional().describe('Upload comment'),
+      user: z.string().describe('Name of the person requesting this upload (for attribution). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ filename, data, description, comment, wiki }) => {
+    async ({ filename, data, description, comment, user, wiki }) => {
+      const attrComment = comment ? `${comment} (on behalf of ${user})` : `Uploaded via MCP (on behalf of ${user})`;
       const buffer = Buffer.from(data, 'base64');
-      const result = await orchestrator.uploadFile(filename, buffer, description, { wiki, comment });
+      const result = await orchestrator.uploadFile(filename, buffer, description, { wiki, comment: attrComment });
       return {
         content: [{
           type: 'text' as const,
@@ -69,16 +71,18 @@ export function registerFileTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'upload-file-from-url',
-    'Upload a file to the wiki from a URL',
+    'Upload a file to the wiki from a URL. Requires the requesting user\'s name for attribution.',
     {
       filename: z.string().describe('Target filename on the wiki'),
       url: z.string().url().describe('Source URL to fetch the file from'),
       description: z.string().describe('File description (wikitext)'),
       comment: z.string().optional().describe('Upload comment'),
+      user: z.string().describe('Name of the person requesting this upload (for attribution). Ask the user if not known'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ filename, url, description, comment, wiki }) => {
-      const result = await orchestrator.uploadFromUrl(filename, url, description, { wiki, comment });
+    async ({ filename, url, description, comment, user, wiki }) => {
+      const attrComment = comment ? `${comment} (on behalf of ${user})` : `Uploaded via MCP (on behalf of ${user})`;
+      const result = await orchestrator.uploadFromUrl(filename, url, description, { wiki, comment: attrComment });
       return {
         content: [{
           type: 'text' as const,

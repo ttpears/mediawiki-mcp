@@ -270,10 +270,10 @@ export class WikiOrchestrator {
 
   async deletePage(
     title: string,
-    opts?: { wiki?: string }
+    opts?: { wiki?: string; reason?: string }
   ): Promise<{ wiki: string }> {
     const clients = this.getClients(opts?.wiki);
-    await clients.action.deletePage(title);
+    await clients.action.deletePage(title, opts?.reason);
     return { wiki: clients.config.name };
   }
 
