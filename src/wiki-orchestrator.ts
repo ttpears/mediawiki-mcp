@@ -244,7 +244,7 @@ export class WikiOrchestrator {
       summary?: string;
       baseTimestamp?: string;
     }
-  ): Promise<{ wiki: string; result: { result: string; pageid: number; title: string; newrevid: number; newtimestamp: string } }> {
+  ): Promise<{ wiki: string; result: { result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: boolean } }> {
     const clients = this.getClients(opts.wiki);
     const result = await clients.action.editPage(title, {
       text: opts.text,

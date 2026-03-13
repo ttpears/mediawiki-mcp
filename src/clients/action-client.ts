@@ -428,7 +428,7 @@ export class ActionClient {
       summary?: string;
       baseTimestamp?: string;
     }
-  ): Promise<{ result: string; pageid: number; title: string; newrevid: number; newtimestamp: string }> {
+  ): Promise<{ result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: boolean }> {
     const token = await this.getCsrfToken();
 
     const params: Record<string, string | number | undefined> = {
@@ -456,10 +456,13 @@ export class ActionClient {
     }
 
     const response = await this.request<{
-      edit: { result: string; pageid: number; title: string; newrevid: number; newtimestamp: string };
+      edit: { result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: string };
     }>('POST', params);
 
-    return response.edit;
+    return {
+      ...response.edit,
+      nochange: response.edit.nochange !== undefined,
+    };
   }
 
   async getPageContent(title: string): Promise<{ content: string; timestamp: string } | null> {

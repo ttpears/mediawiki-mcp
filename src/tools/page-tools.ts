@@ -3,6 +3,17 @@ import { z } from 'zod';
 import { applyPatch } from 'diff';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
 
+function formatEditResult(
+  result: { result: string; title: string; newrevid?: number; nochange?: boolean },
+  wikiName: string,
+  action: string
+): string {
+  if (result.nochange) {
+    return `No change to "${result.title}" on ${wikiName} — content was already identical.`;
+  }
+  return `${action} "${result.title}" on ${wikiName} (revision: ${result.newrevid})`;
+}
+
 export function registerPageTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-page',
@@ -128,7 +139,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         return {
           content: [{
             type: 'text' as const,
-            text: `Page "${result.result.title}" updated on ${result.wiki} via diff (revision: ${result.result.newrevid})`,
+            text: formatEditResult(result.result, result.wiki, 'Updated'),
           }],
         };
       }
@@ -144,7 +155,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         return {
           content: [{
             type: 'text' as const,
-            text: `Section ${section} of "${result.result.title}" updated on ${result.wiki} (revision: ${result.result.newrevid})`,
+            text: formatEditResult(result.result, result.wiki, `Updated section ${section} of`),
           }],
         };
       }
@@ -159,7 +170,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         return {
           content: [{
             type: 'text' as const,
-            text: `Text appended to "${result.result.title}" on ${result.wiki} (revision: ${result.result.newrevid})`,
+            text: formatEditResult(result.result, result.wiki, 'Appended to'),
           }],
         };
       }
@@ -174,7 +185,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
         return {
           content: [{
             type: 'text' as const,
-            text: `Text prepended to "${result.result.title}" on ${result.wiki} (revision: ${result.result.newrevid})`,
+            text: formatEditResult(result.result, result.wiki, 'Prepended to'),
           }],
         };
       }
@@ -188,7 +199,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
       return {
         content: [{
           type: 'text' as const,
-          text: `Page "${result.result.title}" updated on ${result.wiki} (revision: ${result.result.newrevid})`,
+          text: formatEditResult(result.result, result.wiki, 'Updated'),
         }],
       };
     }
