@@ -80,20 +80,16 @@ Create a `.env` file (see `.env.example`):
 
 ```bash
 # Register multiple wikis (Name:URL pairs, comma-separated)
-MEDIAWIKI_WIKIS=Sales:https://wiki.example.com,Dev:https://dev.wiki.example.com,Tech:https://tech.wiki.example.com,Content:https://content.wiki.example.com
+MEDIAWIKI_WIKIS=Main:https://wiki.example.com,Dev:https://dev.wiki.example.com
 
 # Default wiki when none is specified
-MEDIAWIKI_DEFAULT_WIKI=Sales
+MEDIAWIKI_DEFAULT_WIKI=Main
 
 # Per-wiki bot password credentials (uppercase wiki name)
-MEDIAWIKI_USERNAME_SALES=Admin@mcp
-MEDIAWIKI_PASSWORD_SALES=your-bot-password-here
+MEDIAWIKI_USERNAME_MAIN=Admin@mcp
+MEDIAWIKI_PASSWORD_MAIN=your-bot-password-here
 MEDIAWIKI_USERNAME_DEV=Admin@mcp
 MEDIAWIKI_PASSWORD_DEV=your-bot-password-here
-MEDIAWIKI_USERNAME_TECH=Admin@mcp
-MEDIAWIKI_PASSWORD_TECH=your-bot-password-here
-MEDIAWIKI_USERNAME_CONTENT=Admin@mcp
-MEDIAWIKI_PASSWORD_CONTENT=your-bot-password-here
 ```
 
 ### Single-Wiki Setup
@@ -135,16 +131,12 @@ Add the `MEDIAWIKI_*` variables to your LibreChat `.env` file (e.g. `/srv/docker
 
 ```bash
 # MediaWiki MCP
-MEDIAWIKI_WIKIS=Sales:https://wiki.example.com,Dev:https://dev.wiki.example.com,Tech:https://tech.wiki.example.com,Content:https://content.wiki.example.com
-MEDIAWIKI_DEFAULT_WIKI=Sales
-MEDIAWIKI_USERNAME_SALES=Admin@mcp
-MEDIAWIKI_PASSWORD_SALES=your-bot-password-here
+MEDIAWIKI_WIKIS=Main:https://wiki.example.com,Dev:https://dev.wiki.example.com
+MEDIAWIKI_DEFAULT_WIKI=Main
+MEDIAWIKI_USERNAME_MAIN=Admin@mcp
+MEDIAWIKI_PASSWORD_MAIN=your-bot-password-here
 MEDIAWIKI_USERNAME_DEV=Admin@mcp
 MEDIAWIKI_PASSWORD_DEV=your-bot-password-here
-MEDIAWIKI_USERNAME_TECH=Admin@mcp
-MEDIAWIKI_PASSWORD_TECH=your-bot-password-here
-MEDIAWIKI_USERNAME_CONTENT=Admin@mcp
-MEDIAWIKI_PASSWORD_CONTENT=your-bot-password-here
 ```
 
 #### 2. Add to `docker-compose.override.yml`
