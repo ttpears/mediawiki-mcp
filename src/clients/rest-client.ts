@@ -142,12 +142,12 @@ export class RestClient {
     title: string,
     source: string,
     comment: string,
-    latestTimestamp: string
+    latestRevisionId: number
   ): Promise<RestPage> {
     const body: Record<string, unknown> = {
       source,
       comment,
-      latest: { timestamp: latestTimestamp },
+      latest: { id: latestRevisionId },
     };
     if (this.csrfTokenProvider) {
       body.token = await this.csrfTokenProvider();

@@ -202,7 +202,7 @@ describe('RestClient', () => {
         'Test Page',
         'Updated content',
         'Editing',
-        '2024-01-01T00:00:00Z'
+        10
       );
 
       expect(result).toEqual(pageData);
@@ -212,7 +212,7 @@ describe('RestClient', () => {
         data: {
           source: 'Updated content',
           comment: 'Editing',
-          latest: { timestamp: '2024-01-01T00:00:00Z' },
+          latest: { id: 10 },
         },
       });
     });

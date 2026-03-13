@@ -224,11 +224,11 @@ export class WikiOrchestrator {
     title: string,
     source: string,
     comment: string,
-    latestTimestamp: string,
+    latestRevisionId: number,
     opts?: { wiki?: string }
   ): Promise<{ wiki: string; page: RestPage }> {
     const clients = this.getClients(opts?.wiki);
-    const page = await clients.rest.updatePage(title, source, comment, latestTimestamp);
+    const page = await clients.rest.updatePage(title, source, comment, latestRevisionId);
     return { wiki: clients.config.name, page };
   }
 
