@@ -14,6 +14,7 @@ export class RestClient {
   private readonly maxRetries = 3;
   private retryDelayMs = 1000;
   private cookieProvider?: () => string[];
+  private csrfTokenProvider?: () => Promise<string>;
 
   constructor(wikiName: string, baseUrl: string) {
     this.wikiName = wikiName;
@@ -42,6 +43,11 @@ export class RestClient {
   /** Set a cookie provider so this client shares the ActionClient's session */
   setCookieProvider(provider: () => string[]): void {
     this.cookieProvider = provider;
+  }
+
+  /** Set a CSRF token provider for write operations (shared from ActionClient) */
+  setCsrfTokenProvider(provider: () => Promise<string>): void {
+    this.csrfTokenProvider = provider;
   }
 
   /** Override retry delay for testing */
@@ -125,7 +131,11 @@ export class RestClient {
   }
 
   async createPage(title: string, source: string, comment: string): Promise<RestPage> {
-    return this.request<RestPage>('POST', '/page', { title, source, comment });
+    const body: Record<string, unknown> = { title, source, comment };
+    if (this.csrfTokenProvider) {
+      body.token = await this.csrfTokenProvider();
+    }
+    return this.request<RestPage>('POST', '/page', body);
   }
 
   async updatePage(
@@ -134,11 +144,15 @@ export class RestClient {
     comment: string,
     latestTimestamp: string
   ): Promise<RestPage> {
-    return this.request<RestPage>('PUT', `/page/${encodeURIComponent(title)}`, {
+    const body: Record<string, unknown> = {
       source,
       comment,
       latest: { timestamp: latestTimestamp },
-    });
+    };
+    if (this.csrfTokenProvider) {
+      body.token = await this.csrfTokenProvider();
+    }
+    return this.request<RestPage>('PUT', `/page/${encodeURIComponent(title)}`, body);
   }
 
   async getPageHistory(

@@ -217,7 +217,7 @@ export class ActionClient {
     );
   }
 
-  private async getCsrfToken(): Promise<string> {
+  async getCsrfToken(): Promise<string> {
     if (this.csrfToken) {
       return this.csrfToken;
     }
@@ -415,6 +415,80 @@ export class ActionClient {
       reason,
       token,
     });
+  }
+
+  async editPage(
+    title: string,
+    opts: {
+      text?: string;
+      section?: number | 'new';
+      sectionTitle?: string;
+      appendText?: string;
+      prependText?: string;
+      summary?: string;
+      baseTimestamp?: string;
+    }
+  ): Promise<{ result: string; pageid: number; title: string; newrevid: number; newtimestamp: string }> {
+    const token = await this.getCsrfToken();
+
+    const params: Record<string, string | number | undefined> = {
+      action: 'edit',
+      title,
+      token,
+      summary: opts.summary,
+      basetimestamp: opts.baseTimestamp,
+    };
+
+    if (opts.text !== undefined) {
+      params.text = opts.text;
+    }
+    if (opts.section !== undefined) {
+      params.section = opts.section === 'new' ? 'new' : opts.section;
+    }
+    if (opts.sectionTitle !== undefined) {
+      params.sectiontitle = opts.sectionTitle;
+    }
+    if (opts.appendText !== undefined) {
+      params.appendtext = opts.appendText;
+    }
+    if (opts.prependText !== undefined) {
+      params.prependtext = opts.prependText;
+    }
+
+    const response = await this.request<{
+      edit: { result: string; pageid: number; title: string; newrevid: number; newtimestamp: string };
+    }>('POST', params);
+
+    return response.edit;
+  }
+
+  async getPageContent(title: string): Promise<{ content: string; timestamp: string } | null> {
+    const response = await this.request<{
+      query: {
+        pages: Array<{
+          missing?: boolean;
+          revisions?: Array<{ content: string; timestamp: string }>;
+        }>;
+      };
+    }>('GET', {
+      action: 'query',
+      titles: title,
+      prop: 'revisions',
+      rvprop: 'content|timestamp',
+      rvslots: 'main',
+      rvlimit: 1,
+    });
+
+    const page = response.query.pages[0];
+    if (page?.missing || !page?.revisions?.length) {
+      return null;
+    }
+
+    const rev = page.revisions[0];
+    // formatversion=2 puts content directly; formatversion=1 nests in slots
+    const content = (rev as any).slots?.main?.content ?? (rev as any).content ?? rev.content;
+    const timestamp = rev.timestamp;
+    return { content, timestamp };
   }
 
   async uploadFromUrl(

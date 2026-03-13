@@ -17,6 +17,7 @@ vi.mock('../src/clients/rest-client.js', () => {
     this.createPage = vi.fn();
     this.updatePage = vi.fn();
     this.setCookieProvider = vi.fn();
+    this.setCsrfTokenProvider = vi.fn();
   });
   return { RestClient };
 });
@@ -33,6 +34,7 @@ vi.mock('../src/clients/action-client.js', () => {
     this.uploadFile = vi.fn();
     this.login = vi.fn().mockResolvedValue(undefined);
     this.getCookies = vi.fn().mockReturnValue([]);
+    this.getCsrfToken = vi.fn().mockResolvedValue('+\\');
   });
   return { ActionClient };
 });

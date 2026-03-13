@@ -44,8 +44,9 @@ export class WikiOrchestrator {
     const action = new ActionClient(wiki.name, wiki.baseUrl, wiki.username, wiki.password);
     const rest = new RestClient(wiki.name, wiki.baseUrl);
 
-    // Share session cookies from ActionClient → RestClient
+    // Share session cookies and CSRF token from ActionClient → RestClient
     rest.setCookieProvider(() => action.getCookies());
+    rest.setCsrfTokenProvider(() => action.getCsrfToken());
 
     // Login if credentials are provided
     await action.login();
@@ -211,6 +212,42 @@ export class WikiOrchestrator {
     const clients = this.getClients(opts?.wiki);
     const page = await clients.rest.updatePage(title, source, comment, latestTimestamp);
     return { wiki: clients.config.name, page };
+  }
+
+  async editPage(
+    title: string,
+    opts: {
+      wiki?: string;
+      text?: string;
+      section?: number | 'new';
+      sectionTitle?: string;
+      appendText?: string;
+      prependText?: string;
+      summary?: string;
+      baseTimestamp?: string;
+    }
+  ): Promise<{ wiki: string; result: { result: string; pageid: number; title: string; newrevid: number; newtimestamp: string } }> {
+    const clients = this.getClients(opts.wiki);
+    const result = await clients.action.editPage(title, {
+      text: opts.text,
+      section: opts.section,
+      sectionTitle: opts.sectionTitle,
+      appendText: opts.appendText,
+      prependText: opts.prependText,
+      summary: opts.summary,
+      baseTimestamp: opts.baseTimestamp,
+    });
+    return { wiki: clients.config.name, result };
+  }
+
+  async getPageContent(
+    title: string,
+    opts?: { wiki?: string }
+  ): Promise<{ wiki: string; content: string; timestamp: string } | null> {
+    const clients = this.getClients(opts?.wiki);
+    const result = await clients.action.getPageContent(title);
+    if (!result) return null;
+    return { wiki: clients.config.name, ...result };
   }
 
   async deletePage(
