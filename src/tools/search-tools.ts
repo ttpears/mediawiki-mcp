@@ -43,8 +43,8 @@ function formatSearchResults(result: FanOutResult<RestSearchResult>): string {
 
 export function registerSearchTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
-    'search-pages',
-    'Search for pages across wikis by content',
+    'search-page',
+    'Full-text search across wiki pages. Returns matching page titles, IDs, and text excerpts. Use this to find pages when you don\'t know the exact title.',
     {
       query: z.string().describe('Search query'),
       wiki: z.string().optional().describe('Wiki name (omit to search all wikis)'),
@@ -59,8 +59,8 @@ export function registerSearchTools(server: McpServer, orchestrator: WikiOrchest
   );
 
   server.tool(
-    'search-pages-by-prefix',
-    'Search for pages by title prefix',
+    'search-page-by-prefix',
+    'Search for pages by title prefix (autocomplete-style). Returns matching page titles and IDs. Faster than full-text search when you know the beginning of the page title.',
     {
       query: z.string().describe('Title prefix to search for'),
       wiki: z.string().optional().describe('Wiki name (omit to search all wikis)'),

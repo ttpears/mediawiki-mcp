@@ -5,7 +5,7 @@ import { WikiOrchestrator } from '../wiki-orchestrator.js';
 export function registerCategoryTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'list-categories',
-    'List categories across wikis',
+    'List all categories on the wiki with page/subcat/file counts. Use prefix to filter by name prefix. Useful for discovering how content is organized.',
     {
       wiki: z.string().optional().describe('Wiki name (omit to list from all wikis)'),
       prefix: z.string().optional().describe('Filter categories by prefix'),
@@ -65,7 +65,7 @@ export function registerCategoryTools(server: McpServer, orchestrator: WikiOrche
 
   server.tool(
     'get-category-members',
-    'Get members of a category',
+    'List all pages, subcategories, or files within a specific category. Returns member titles and IDs. Use type to filter (page/subcat/file).',
     {
       category: z.string().describe('Category name (with or without "Category:" prefix)'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),

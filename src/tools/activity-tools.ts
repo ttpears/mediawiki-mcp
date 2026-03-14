@@ -6,7 +6,7 @@ import { ActionRecentChange } from '../types.js';
 export function registerActivityTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-recent-changes',
-    'Get recent changes across wikis',
+    'Get a feed of recent edits, page creations, and log events across wikis. Returns timestamps, change types, page titles, authors, size deltas, and edit summaries. Useful for monitoring wiki activity.',
     {
       wiki: z.string().optional().describe('Wiki name (omit to get changes from all wikis)'),
       limit: z.number().optional().default(20).describe('Maximum number of changes'),

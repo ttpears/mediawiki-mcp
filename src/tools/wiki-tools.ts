@@ -5,7 +5,7 @@ import { WikiOrchestrator } from '../wiki-orchestrator.js';
 export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'add-wiki',
-    'Add a new wiki to the registry',
+    'Register a new MediaWiki instance so you can read and edit its pages. Provide the wiki base URL and optional bot credentials. After adding, use the wiki name in other tools\' "wiki" parameter.',
     {
       name: z.string().describe('Unique name for the wiki'),
       url: z.string().url().describe('Base URL of the MediaWiki instance'),
@@ -24,7 +24,7 @@ export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'remove-wiki',
-    'Remove a wiki from the registry',
+    'Unregister a wiki so it is no longer accessible. Does not affect the wiki itself — only removes it from this session.',
     {
       name: z.string().describe('Name of the wiki to remove'),
     },
@@ -39,8 +39,23 @@ export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestra
   );
 
   server.tool(
+    'set-wiki',
+    'Set the default wiki. When multiple wikis are registered, this determines which wiki is used when the "wiki" parameter is omitted from other tool calls.',
+    {
+      name: z.string().describe('Name of the registered wiki to set as default'),
+    },
+    async ({ name }) => {
+      const registry = orchestrator.getRegistry();
+      registry.setDefault(name);
+      return {
+        content: [{ type: 'text' as const, text: `Default wiki set to "${name}"` }],
+      };
+    }
+  );
+
+  server.tool(
     'list-wikis',
-    'List all registered wikis',
+    'List all registered wikis with their URLs, auth status, and which is the default. Call this first if you\'re unsure which wikis are available.',
     {},
     async () => {
       const registry = orchestrator.getRegistry();

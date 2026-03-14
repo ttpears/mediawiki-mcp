@@ -5,7 +5,7 @@ import { WikiOrchestrator } from '../wiki-orchestrator.js';
 export function registerFileTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-file',
-    'Get file metadata and URLs',
+    'Get metadata and download URLs for an uploaded file (image, PDF, etc). Returns dimensions, file size, media type, and both original and preferred-format URLs.',
     {
       title: z.string().describe('File title (with or without "File:" prefix)'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
@@ -47,7 +47,7 @@ export function registerFileTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'upload-file',
-    'Upload a file from base64-encoded data. Requires the requesting user\'s name for attribution.',
+    'Upload a file to the wiki from base64-encoded data. Provide the file content as a base64 string. Requires the requesting user\'s name for attribution.',
     {
       filename: z.string().describe('Target filename on the wiki'),
       data: z.string().describe('Base64-encoded file content'),
@@ -71,7 +71,7 @@ export function registerFileTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'upload-file-from-url',
-    'Upload a file to the wiki from a URL. Requires the requesting user\'s name for attribution.',
+    'Upload a file to the wiki by fetching it from a URL. The wiki server downloads the file directly from the source URL. Requires the requesting user\'s name for attribution.',
     {
       filename: z.string().describe('Target filename on the wiki'),
       url: z.string().url().describe('Source URL to fetch the file from'),

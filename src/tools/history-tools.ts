@@ -5,7 +5,7 @@ import { WikiOrchestrator } from '../wiki-orchestrator.js';
 export function registerHistoryTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-page-history',
-    'Get revision history for a page',
+    'Get the revision history of a wiki page. Returns a list of revisions with IDs, timestamps, authors, size changes, and edit summaries. Use older_than to paginate through long histories.',
     {
       title: z.string().describe('Page title'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
@@ -40,7 +40,7 @@ export function registerHistoryTools(server: McpServer, orchestrator: WikiOrches
 
   server.tool(
     'get-revision',
-    'Get details for a specific revision',
+    'Get details for a specific revision by ID. Returns the page title, timestamp, author, size, byte delta, and edit comment.',
     {
       revision_id: z.number().describe('Revision ID'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),

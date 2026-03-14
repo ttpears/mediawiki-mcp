@@ -5,7 +5,7 @@ import { WikiOrchestrator } from '../wiki-orchestrator.js';
 export function registerLinkTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-page-links',
-    'Get links from or to a page',
+    'Get outgoing links from a page (direction="from") or find all pages that link to it (direction="to", i.e. backlinks). Returns link titles and namespaces.',
     {
       title: z.string().describe('Page title'),
       direction: z.enum(['from', 'to']).optional().default('from').describe('Link direction: "from" for outgoing links, "to" for backlinks'),

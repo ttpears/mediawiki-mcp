@@ -23,7 +23,7 @@ function formatEditResult(
 export function registerPageTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
     'get-page',
-    'Get page content and metadata',
+    'Retrieve a wiki page\'s full wikitext source and metadata. Returns the page title, ID, content model, latest revision ID/timestamp, and the raw wikitext source. Call this BEFORE update-page to read the current content you want to edit.',
     {
       title: z.string().describe('Page title'),
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
@@ -73,7 +73,7 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'create-page',
-    'Create a new wiki page. Requires the requesting user\'s name for edit attribution.',
+    'Create a new wiki page with wikitext content. The page must not already exist — use update-page to modify existing pages. Requires the requesting user\'s name for edit attribution.',
     {
       title: z.string().describe('Page title'),
       content: z.string().describe('Page content (wikitext)'),
@@ -94,18 +94,25 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'update-page',
-    `Update a wiki page. Supports multiple edit modes to avoid sending full page content. Use diff (unified diff format) for targeted edits (preferred for large pages), section for editing a specific section, append/prepend for adding content, or content for full replacement.
+    `Update an existing wiki page. WORKFLOW: First call get-page to read the current wikitext source, then call this tool with your changes.
+
+EDIT MODES (use exactly one):
+• diff: Preferred for targeted edits. Provide a unified diff (with @@ hunk headers and context lines) — the server fetches current content, applies the patch, and saves. Best for surgical changes to large pages.
+• section + content: Edit a single section by number (0 = lead section). Only that section is replaced.
+• append: Add text to the end of the page without reading current content first.
+• prepend: Add text to the beginning of the page without reading current content first.
+• content: Full page replacement. Avoid for large pages — use diff instead.
+
+Requires the requesting user's name for edit attribution.
 
 WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
-• Tables: Use {| class="wikitable" with |- row separators (not |---- or border="1" or HTML <table>)
-• Bold/italic: Use '''bold''' and ''italic'' (not <b> or <i> HTML tags)
-• Headings: Use == Level 2 == through ====== Level 6 ====== (skip level 1)
-• Lists: Use * for bullets, # for numbered, ; and : for definition lists
-• Links: Use [URL description] for external links (not bare URLs)
-• Avoid: <center>, <font>, <tt>, <strike>, <big>, <u> — all deprecated
-• Avoid: Deep colon indentation (::) — use proper lists or {{indent}} template
-• Avoid: Excessive <br> tags — use proper paragraph/list markup instead
-• Avoid: Inline CSS on divs — prefer templates or CSS classes`,
+• Tables: {| class="wikitable" with |- row separators (not |---- or border="1" or HTML <table>)
+• Bold/italic: '''bold''' and ''italic'' (not <b>/<i>)
+• Headings: == Level 2 == through ====== Level 6 ====== (skip level 1)
+• Lists: * bullets, # numbered, ; and : for definition lists
+• Links: [URL description] for external (not bare URLs)
+• Avoid deprecated tags: <center>, <font>, <tt>, <strike>, <big>, <u>
+• Avoid deep colon indentation (::), excessive <br>, inline CSS on divs`,
     {
       title: z.string().describe('Page title'),
       content: z.string().optional().describe('Full page content for complete replacement. Avoid for large pages — use diff instead'),
@@ -236,7 +243,7 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
 
   server.tool(
     'delete-page',
-    'Delete a wiki page. Requires the requesting user\'s name for attribution.',
+    'Delete a wiki page permanently. This requires admin/sysop rights on the wiki. Requires the requesting user\'s name for attribution.',
     {
       title: z.string().describe('Page title to delete'),
       reason: z.string().optional().describe('Reason for deletion'),
@@ -254,7 +261,7 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
 
   server.tool(
     'undelete-page',
-    'Restore a deleted wiki page. Requires the requesting user\'s name for attribution.',
+    'Restore a previously deleted wiki page. This requires admin/sysop rights on the wiki. Requires the requesting user\'s name for attribution.',
     {
       title: z.string().describe('Page title to restore'),
       reason: z.string().optional().describe('Reason for restoring the page'),
