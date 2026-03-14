@@ -4,6 +4,14 @@
   "description": "MediaWiki MCP server with multi-wiki support and REST API",
   "type": "module",
   "main": "dist/index.js",
+  "bin": {
+    "mediawiki-mcp": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
   "scripts": {
     "build": "tsc",
     "dev": "tsc --watch",
@@ -11,7 +19,8 @@
     "start:http": "node dist/http-transport.js",
     "test": "vitest run",
     "test:watch": "vitest",
-    "type-check": "tsc --noEmit"
+    "type-check": "tsc --noEmit",
+    "prepublishOnly": "npm run build && npm run test"
   },
   "keywords": [
     "mcp",
