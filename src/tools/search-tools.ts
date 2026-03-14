@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
 import { FanOutResult, RestSearchResult } from '../types.js';
 
-function stripHtml(html: string): string {
-  return html.replace(/<[^>]*>/g, '');
+function stripHtml(html: string | null | undefined): string {
+  return html ? html.replace(/<[^>]*>/g, '') : '';
 }
 
 function formatSearchResults(result: FanOutResult<RestSearchResult>): string {
