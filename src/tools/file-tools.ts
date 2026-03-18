@@ -1,6 +1,22 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
+import axios from 'axios';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
+
+const IMAGE_MEDIATYPES = new Set(['BITMAP', 'DRAWING']);
+const MIME_MAP: Record<string, string> = {
+  BITMAP: 'image/png',   // fallback; prefer from URL extension
+  DRAWING: 'image/svg+xml',
+};
+
+function mimeFromUrl(url: string, mediatype: string): string {
+  const ext = url.split('.').pop()?.toLowerCase();
+  const extMap: Record<string, string> = {
+    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
+    gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
+  };
+  return extMap[ext ?? ''] ?? MIME_MAP[mediatype] ?? 'application/octet-stream';
+}
 
 export function registerFileTools(server: McpServer, orchestrator: WikiOrchestrator): void {
   server.tool(
@@ -39,9 +55,32 @@ export function registerFileTools(server: McpServer, orchestrator: WikiOrchestra
         `  URL: ${file.preferred.url}`,
       ];
 
-      return {
-        content: [{ type: 'text' as const, text: lines.join('\n') }],
-      };
+      const content: Array<{ type: 'text'; text: string } | { type: 'image'; data: string; mimeType: string }> = [
+        { type: 'text' as const, text: lines.join('\n') },
+      ];
+
+      // For image files, fetch and return the image data inline
+      if (IMAGE_MEDIATYPES.has(file.original.mediatype)) {
+        try {
+          const imgUrl = file.preferred.url;
+          const resp = await axios.get(imgUrl, {
+            responseType: 'arraybuffer',
+            timeout: 15000,
+            headers: { 'User-Agent': 'MediaWiki-MCP/2.0.0' },
+          });
+          const base64 = Buffer.from(resp.data).toString('base64');
+          const mimeType = mimeFromUrl(imgUrl, file.original.mediatype);
+          content.push({ type: 'image' as const, data: base64, mimeType });
+        } catch {
+          // Image fetch failed — still return metadata
+          const first = content[0];
+          if (first.type === 'text') {
+            first.text += '\n\n(Could not fetch image data for inline display)';
+          }
+        }
+      }
+
+      return { content };
     }
   );
 
