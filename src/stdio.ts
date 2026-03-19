@@ -12,7 +12,7 @@ export async function createStdioServer(registry: WikiRegistry): Promise<void> {
 
   const orchestrator = new WikiOrchestrator(registry);
   await orchestrator.initialize();
-  registerAllTools(server, orchestrator);
+  registerAllTools(server, { orchestrator });
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

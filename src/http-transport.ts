@@ -53,7 +53,12 @@ export async function createHTTPServer(
 
       const orchestrator = new WikiOrchestrator(registry);
       await orchestrator.initialize();
-      registerAllTools(server, orchestrator);
+
+      // Extract session user from LibreChat header (if present)
+      const rawUser = req.headers['x-user-username'] as string | undefined;
+      const sessionUser = rawUser?.trim() || undefined;
+
+      registerAllTools(server, { orchestrator, sessionUser });
 
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);

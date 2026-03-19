@@ -2,11 +2,17 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { applyPatch } from 'diff';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
+import { SessionContext } from './index.js';
 import { lintWikitext, formatLintWarnings } from '../wikitext-lint.js';
 
-function attributeSummary(summary: string, user?: string): string {
+export function attributeSummary(summary: string, user?: string): string {
   if (!user) return summary;
   return `${summary} (on behalf of ${user})`;
+}
+
+/** Resolve the effective user: session header > tool arg > undefined */
+function resolveUser(context: SessionContext, toolUser?: string): string | undefined {
+  return context.sessionUser || toolUser || undefined;
 }
 
 function formatEditResult(
@@ -20,7 +26,15 @@ function formatEditResult(
   return `${action} "${result.title}" on ${wikiName} (revision: ${result.newrevid})`;
 }
 
-export function registerPageTools(server: McpServer, orchestrator: WikiOrchestrator): void {
+export function registerPageTools(server: McpServer, context: SessionContext): void {
+  const orchestrator = context.orchestrator;
+  const hasSessionUser = !!context.sessionUser;
+
+  // Only include user param in schema when no session user (stdio mode)
+  const userSchema: Record<string, z.ZodTypeAny> = {};
+  if (!hasSessionUser) {
+    userSchema.user = z.string().optional().describe('Name of the person requesting this edit (for attribution in edit summary). Ask the user if not known');
+  }
   server.tool(
     'get-page',
     'Retrieve a wiki page\'s full wikitext source and metadata. Returns the page title, ID, content model, latest revision ID/timestamp, and the raw wikitext source. Call this BEFORE update-page to read the current content you want to edit.',
@@ -73,16 +87,17 @@ export function registerPageTools(server: McpServer, orchestrator: WikiOrchestra
 
   server.tool(
     'create-page',
-    'Create a new wiki page with wikitext content. The page must not already exist — use update-page to modify existing pages. Requires the requesting user\'s name for edit attribution.',
+    'Create a new wiki page with wikitext content. The page must not already exist — use update-page to modify existing pages.',
     {
       title: z.string().describe('Page title'),
       content: z.string().describe('Page content (wikitext)'),
       summary: z.string().describe('Edit summary'),
-      user: z.string().describe('Name of the person requesting this edit (for attribution in edit summary). Ask the user if not known'),
+      ...userSchema,
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, content, summary, user, wiki }) => {
-      const result = await orchestrator.createPage(title, content, attributeSummary(summary, user), { wiki });
+    async (args) => {
+      const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
+      const result = await orchestrator.createPage(args.title, args.content, attributeSummary(args.summary, user), { wiki: args.wiki });
       return {
         content: [{
           type: 'text' as const,
@@ -103,8 +118,6 @@ EDIT MODES (use exactly one):
 • prepend: Add text to the beginning of the page without reading current content first.
 • content: Full page replacement. Avoid for large pages — use diff instead.
 
-Requires the requesting user's name for edit attribution.
-
 WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
 • Tables: {| class="wikitable" with |- row separators (not |---- or border="1" or HTML <table>)
 • Bold/italic: '''bold''' and ''italic'' (not <b>/<i>)
@@ -121,10 +134,13 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
       append: z.string().optional().describe('Text to append to the end of the page'),
       prepend: z.string().optional().describe('Text to prepend to the beginning of the page'),
       summary: z.string().describe('Edit summary'),
-      user: z.string().describe('Name of the person requesting this edit (for attribution in edit summary). Ask the user if not known'),
+      ...userSchema,
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, content, diff, section, append, prepend, summary, user, wiki }) => {
+    async (args) => {
+      const a = args as Record<string, any>;
+      const { title, content, diff, section, append, prepend, summary, wiki } = a;
+      const user = resolveUser(context, a.user as string | undefined);
       const attrSummary = attributeSummary(summary, user);
       // Validate that exactly one edit mode is specified
       const modes = [
@@ -243,14 +259,16 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
 
   server.tool(
     'delete-page',
-    'Delete a wiki page permanently. This requires admin/sysop rights on the wiki. Requires the requesting user\'s name for attribution.',
+    'Delete a wiki page permanently. This requires admin/sysop rights on the wiki.',
     {
       title: z.string().describe('Page title to delete'),
       reason: z.string().optional().describe('Reason for deletion'),
-      user: z.string().describe('Name of the person requesting this deletion (for attribution). Ask the user if not known'),
+      ...userSchema,
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, reason, user, wiki }) => {
+    async (args) => {
+      const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
+      const { title, reason, wiki } = args;
       const attrReason = attributeSummary(reason ?? 'Deleted via MCP', user);
       const result = await orchestrator.deletePage(title, { wiki, reason: attrReason });
       return {
@@ -261,14 +279,16 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
 
   server.tool(
     'undelete-page',
-    'Restore a previously deleted wiki page. This requires admin/sysop rights on the wiki. Requires the requesting user\'s name for attribution.',
+    'Restore a previously deleted wiki page. This requires admin/sysop rights on the wiki.',
     {
       title: z.string().describe('Page title to restore'),
       reason: z.string().optional().describe('Reason for restoring the page'),
-      user: z.string().describe('Name of the person requesting this restoration (for attribution). Ask the user if not known'),
+      ...userSchema,
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
-    async ({ title, reason, user, wiki }) => {
+    async (args) => {
+      const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
+      const { title, reason, wiki } = args;
       const attrReason = attributeSummary(reason ?? 'Restored via MCP', user);
       const result = await orchestrator.undeletePage(title, attrReason, { wiki });
       return {

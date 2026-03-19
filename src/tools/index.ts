@@ -9,13 +9,19 @@ import { registerLinkTools } from './link-tools.js';
 import { registerFileTools } from './file-tools.js';
 import { registerActivityTools } from './activity-tools.js';
 
-export function registerAllTools(server: McpServer, orchestrator: WikiOrchestrator): void {
-  registerWikiTools(server, orchestrator);
-  registerSearchTools(server, orchestrator);
-  registerPageTools(server, orchestrator);
-  registerHistoryTools(server, orchestrator);
-  registerCategoryTools(server, orchestrator);
-  registerLinkTools(server, orchestrator);
-  registerFileTools(server, orchestrator);
-  registerActivityTools(server, orchestrator);
+export interface SessionContext {
+  orchestrator: WikiOrchestrator;
+  /** Username from HTTP header (populated in streamable-http mode, undefined in stdio) */
+  sessionUser?: string;
+}
+
+export function registerAllTools(server: McpServer, context: SessionContext): void {
+  registerWikiTools(server, context.orchestrator);
+  registerSearchTools(server, context.orchestrator);
+  registerPageTools(server, context);
+  registerHistoryTools(server, context.orchestrator);
+  registerCategoryTools(server, context.orchestrator);
+  registerLinkTools(server, context.orchestrator);
+  registerFileTools(server, context);
+  registerActivityTools(server, context.orchestrator);
 }
