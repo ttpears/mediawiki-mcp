@@ -5,7 +5,7 @@ import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from '@modelcontextprotocol/sdk/types.js';
 import { WikiRegistry } from './wiki-registry.js';
 import { WikiOrchestrator } from './wiki-orchestrator.js';
-import { registerAllTools } from './tools/index.js';
+import { registerAllTools, SessionContext } from './tools/index.js';
 
 export async function createHTTPServer(
   registry: WikiRegistry,
@@ -15,7 +15,7 @@ export async function createHTTPServer(
   const app = express();
   app.use(express.json());
 
-  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer }>();
+  const sessions = new Map<string, { transport: StreamableHTTPServerTransport; server: McpServer; context: SessionContext }>();
 
   app.get('/health', (_req, res) => {
     res.json({ status: 'ok', service: 'mediawiki-mcp', version: '2.0.0' });
@@ -24,9 +24,13 @@ export async function createHTTPServer(
   app.post('/mcp', async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
-    // Existing session — route to its transport
+    // Existing session — update user from header and route to transport
     if (sessionId && sessions.has(sessionId)) {
       const session = sessions.get(sessionId)!;
+      const rawUser = req.headers['x-user-username'] as string | undefined;
+      if (rawUser?.trim()) {
+        session.context.sessionUser = rawUser.trim();
+      }
       await session.transport.handleRequest(req, res, req.body);
       return;
     }
@@ -36,7 +40,7 @@ export async function createHTTPServer(
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          sessions.set(id, { transport, server });
+          sessions.set(id, { transport, server, context });
         },
       });
 
@@ -56,9 +60,9 @@ export async function createHTTPServer(
 
       // Extract session user from LibreChat header (if present)
       const rawUser = req.headers['x-user-username'] as string | undefined;
-      const sessionUser = rawUser?.trim() || undefined;
+      const context: SessionContext = { orchestrator, sessionUser: rawUser?.trim() || undefined };
 
-      registerAllTools(server, { orchestrator, sessionUser });
+      registerAllTools(server, context);
 
       await server.connect(transport);
       await transport.handleRequest(req, res, req.body);
