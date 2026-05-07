@@ -33,6 +33,35 @@ npm install
 npm run build
 ```
 
+### Claude Code Installation
+
+Register the published npm package directly with `claude mcp add`. Repeat `--env` for each variable, put all flags **before** the server name, and use `--` to mark the start of the spawned command. `--scope` picks where the entry lives: `local` (default, current project), `user` (every project), or `project` (`.mcp.json` for team check-in).
+
+Single-wiki:
+
+```bash
+claude mcp add mediawiki \
+  --scope user \
+  --env MEDIAWIKI_BASE_URL=https://wiki.example.com \
+  --env MEDIAWIKI_USERNAME=Admin@mcp \
+  --env MEDIAWIKI_PASSWORD=your-bot-password \
+  -- npx -y mediawiki-mcp
+```
+
+Multi-wiki — register wikis as `Name:URL` pairs in `MEDIAWIKI_WIKIS`, then provide `MEDIAWIKI_USERNAME_<NAME>` and `MEDIAWIKI_PASSWORD_<NAME>` per wiki (uppercase). `MEDIAWIKI_DEFAULT_WIKI` picks the wiki used when a tool call doesn't specify one:
+
+```bash
+claude mcp add mediawiki \
+  --scope user \
+  --env MEDIAWIKI_WIKIS=Main:https://wiki.example.com,Dev:https://dev.wiki.example.com \
+  --env MEDIAWIKI_DEFAULT_WIKI=Main \
+  --env MEDIAWIKI_USERNAME_MAIN=Admin@mcp \
+  --env MEDIAWIKI_PASSWORD_MAIN=your-bot-password \
+  --env MEDIAWIKI_USERNAME_DEV=Admin@mcp \
+  --env MEDIAWIKI_PASSWORD_DEV=your-bot-password \
+  -- npx -y mediawiki-mcp
+```
+
 ### Docker Installation
 
 ```bash
