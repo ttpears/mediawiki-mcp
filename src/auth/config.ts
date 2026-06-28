@@ -9,14 +9,9 @@ export interface OAuthConfig {
   publicUrl: string;
   /** Host portion of publicUrl, used to namespace shared-Redis keys. */
   issuerHost: string;
-  /**
-   * Registered name of the central OAuth/management wiki where the consumer is
-   * registered and the authorize/token endpoints live. Its tokens authenticate
-   * farm-wide (shared CentralAuth), so the connector serves every wiki in
-   * MEDIAWIKI_WIKIS with the one token.
-   */
+  /** Registered wiki name this connector brokers OAuth for. */
   wiki: string;
-  /** OAuth consumer client id (registered on the central wiki). */
+  /** Wiki OAuth consumer client id. */
   clientId: string;
   /** Wiki OAuth consumer client secret. Omitted for public PKCE consumers. */
   clientSecret?: string;
