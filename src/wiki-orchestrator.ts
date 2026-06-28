@@ -13,6 +13,8 @@ import {
   PaginatedResult,
   FanOutResult,
   WikiLabeledResult,
+  FoundPage,
+  FoundPageMatchType,
 } from './types.js';
 import { WikiRegistry } from './wiki-registry.js';
 import { RestClient } from './clients/rest-client.js';
@@ -22,6 +24,30 @@ interface WikiClients {
   config: WikiConfig;
   rest: RestClient;
   action: ActionClient;
+}
+
+const MATCH_PRIORITY: Record<FoundPageMatchType, number> = {
+  exact: 0,
+  redirect: 1,
+  prefix: 2,
+  fulltext: 3,
+};
+
+function rankFoundPages(pages: FoundPage[], limit: number): FoundPage[] {
+  // Dedupe across wikis by (wiki, pageid), keeping the strongest match type.
+  const best = new Map<string, FoundPage>();
+  for (const page of pages) {
+    const key = `${page.wiki}:${page.pageid}`;
+    const existing = best.get(key);
+    if (!existing || MATCH_PRIORITY[page.matchType] < MATCH_PRIORITY[existing.matchType]) {
+      best.set(key, page);
+    }
+  }
+
+  // Stable sort: priority first, insertion order preserved within buckets.
+  const sorted = [...best.values()];
+  sorted.sort((a, b) => MATCH_PRIORITY[a.matchType] - MATCH_PRIORITY[b.matchType]);
+  return sorted.slice(0, limit);
 }
 
 export class WikiOrchestrator {
@@ -144,6 +170,98 @@ export class WikiOrchestrator {
       },
       opts?.wiki
     );
+  }
+
+  /**
+   * Unified page locator: tries exact title (with redirect following), prefix
+   * search, and full-text search per wiki, then merges and ranks results so
+   * the caller gets a single "best pages for this query" list.
+   */
+  async findPage(
+    query: string,
+    opts?: { wiki?: string; limit?: number }
+  ): Promise<{ results: FoundPage[]; warnings: string[] }> {
+    const limit = opts?.limit ?? 10;
+    const targets = opts?.wiki !== undefined
+      ? [this.getClients(opts.wiki)]
+      : this.registry.getAllWikis().map((w) => this.getClients(w.name));
+
+    const settled = await Promise.allSettled(
+      targets.map((clients) => this.findInWiki(clients, query, limit))
+    );
+
+    const all: FoundPage[] = [];
+    const warnings: string[] = [];
+    for (const result of settled) {
+      if (result.status === 'fulfilled') {
+        all.push(...result.value);
+      } else {
+        warnings.push(result.reason instanceof Error ? result.reason.message : String(result.reason));
+      }
+    }
+
+    return { results: rankFoundPages(all, limit), warnings };
+  }
+
+  private async findInWiki(
+    clients: WikiClients,
+    query: string,
+    limit: number
+  ): Promise<FoundPage[]> {
+    const wiki = clients.config.name;
+
+    // Run exact-title resolve, prefix search, and full-text search in parallel.
+    // Any individual failure is captured locally so the other signals still contribute.
+    const [exactRes, prefixRes, fulltextRes] = await Promise.allSettled([
+      clients.action.resolveTitle(query),
+      clients.rest.searchByPrefix(query, limit),
+      clients.rest.search(query, limit),
+    ]);
+
+    const found: FoundPage[] = [];
+    const seen = new Set<string>();
+    const push = (entry: FoundPage): void => {
+      const key = `${entry.pageid}`;
+      if (seen.has(key)) return;
+      seen.add(key);
+      found.push(entry);
+    };
+
+    if (exactRes.status === 'fulfilled' && exactRes.value) {
+      push({
+        wiki,
+        title: exactRes.value.title,
+        pageid: exactRes.value.pageid,
+        matchType: exactRes.value.redirectedFrom ? 'redirect' : 'exact',
+        redirectedFrom: exactRes.value.redirectedFrom,
+      });
+    }
+
+    if (prefixRes.status === 'fulfilled') {
+      for (const page of prefixRes.value.pages) {
+        push({
+          wiki,
+          title: page.title,
+          pageid: page.id,
+          matchType: 'prefix',
+          excerpt: page.excerpt ?? undefined,
+        });
+      }
+    }
+
+    if (fulltextRes.status === 'fulfilled') {
+      for (const page of fulltextRes.value.pages) {
+        push({
+          wiki,
+          title: page.title,
+          pageid: page.id,
+          matchType: 'fulltext',
+          excerpt: page.excerpt ?? undefined,
+        });
+      }
+    }
+
+    return found;
   }
 
   async searchByPrefix(

@@ -478,4 +478,52 @@ describe('ActionClient', () => {
       expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1);
     });
   });
+
+  describe('resolveTitle', () => {
+    it('returns canonical page for an exact title', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: {
+          query: {
+            pages: [{ pageid: 42, ns: 0, title: 'Pricing' }],
+          },
+        },
+      });
+
+      const client = createClient();
+      const result = await client.resolveTitle('Pricing');
+
+      expect(result).toEqual({ title: 'Pricing', pageid: 42, redirectedFrom: undefined });
+    });
+
+    it('follows redirects and records the original input', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: {
+          query: {
+            redirects: [{ from: 'USA', to: 'United States' }],
+            pages: [{ pageid: 1, ns: 0, title: 'United States' }],
+          },
+        },
+      });
+
+      const client = createClient();
+      const result = await client.resolveTitle('USA');
+
+      expect(result).toEqual({ title: 'United States', pageid: 1, redirectedFrom: 'USA' });
+    });
+
+    it('returns null when the page is missing', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: {
+          query: {
+            pages: [{ ns: 0, title: 'Nonexistent', missing: true }],
+          },
+        },
+      });
+
+      const client = createClient();
+      const result = await client.resolveTitle('Nonexistent');
+
+      expect(result).toBeNull();
+    });
+  });
 });

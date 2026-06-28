@@ -32,6 +32,7 @@ vi.mock('../src/clients/action-client.js', () => {
     this.undeletePage = vi.fn();
     this.uploadFromUrl = vi.fn();
     this.uploadFile = vi.fn();
+    this.resolveTitle = vi.fn().mockResolvedValue(null);
     this.login = vi.fn().mockResolvedValue(undefined);
     this.getCookies = vi.fn().mockReturnValue([]);
     this.getCsrfToken = vi.fn().mockResolvedValue('+\\');
@@ -474,6 +475,149 @@ describe('WikiOrchestrator', () => {
 
       expect(result.results).toHaveLength(2);
       expect(salesAction.listCategories).toHaveBeenCalledWith('Test', 10, undefined);
+    });
+  });
+
+  describe('findPage', () => {
+    const emptyPrefix = { pages: [] };
+    const emptySearch = { pages: [] };
+    const makePage = (id: number, title: string, excerpt = '') => ({
+      id,
+      key: title.replace(/ /g, '_'),
+      title,
+      excerpt,
+      matched_title: null,
+      description: null,
+      thumbnail: null,
+    });
+
+    it('ranks exact title match above prefix and full-text hits from any wiki', async () => {
+      const registry = createRegistry(
+        { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
+        { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
+      );
+      const orch = await createOrchestrator(registry);
+
+      const salesRest = getRestMock(orch, 'Sales');
+      const salesAction = getActionMock(orch, 'Sales');
+      const devRest = getRestMock(orch, 'Dev');
+      const devAction = getActionMock(orch, 'Dev');
+
+      // Sales: no exact, but prefix + fulltext hits
+      salesAction.resolveTitle.mockResolvedValue(null);
+      salesRest.searchByPrefix.mockResolvedValue({ pages: [makePage(10, 'Pricing Guide')] });
+      salesRest.search.mockResolvedValue({ pages: [makePage(11, 'Quarterly Report', 'mentions pricing')] });
+
+      // Dev: exact match wins
+      devAction.resolveTitle.mockResolvedValue({ title: 'Pricing', pageid: 42 });
+      devRest.searchByPrefix.mockResolvedValue({ pages: [makePage(42, 'Pricing')] });
+      devRest.search.mockResolvedValue(emptySearch);
+
+      const result = await orch.findPage('Pricing');
+
+      expect(result.warnings).toEqual([]);
+      expect(result.results[0]).toEqual({
+        wiki: 'Dev',
+        title: 'Pricing',
+        pageid: 42,
+        matchType: 'exact',
+        redirectedFrom: undefined,
+      });
+      // Sales prefix hit comes before Sales fulltext hit
+      const salesHits = result.results.filter((r) => r.wiki === 'Sales');
+      expect(salesHits.map((r) => r.matchType)).toEqual(['prefix', 'fulltext']);
+    });
+
+    it('labels redirect follow-through and preserves the original input', async () => {
+      const registry = createRegistry({ name: 'Main', baseUrl: 'https://main.wiki.com' });
+      const orch = await createOrchestrator(registry);
+
+      const rest = getRestMock(orch, 'Main');
+      const action = getActionMock(orch, 'Main');
+
+      action.resolveTitle.mockResolvedValue({
+        title: 'United States',
+        pageid: 1,
+        redirectedFrom: 'USA',
+      });
+      rest.searchByPrefix.mockResolvedValue(emptyPrefix);
+      rest.search.mockResolvedValue(emptySearch);
+
+      const result = await orch.findPage('USA');
+
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].matchType).toBe('redirect');
+      expect(result.results[0].redirectedFrom).toBe('USA');
+      expect(result.results[0].title).toBe('United States');
+    });
+
+    it('dedupes when the same page appears via exact and prefix channels', async () => {
+      const registry = createRegistry({ name: 'Main', baseUrl: 'https://main.wiki.com' });
+      const orch = await createOrchestrator(registry);
+
+      const rest = getRestMock(orch, 'Main');
+      const action = getActionMock(orch, 'Main');
+
+      action.resolveTitle.mockResolvedValue({ title: 'Pricing', pageid: 42 });
+      rest.searchByPrefix.mockResolvedValue({ pages: [makePage(42, 'Pricing')] });
+      rest.search.mockResolvedValue({ pages: [makePage(42, 'Pricing', 'matches pricing')] });
+
+      const result = await orch.findPage('Pricing');
+
+      expect(result.results).toHaveLength(1);
+      expect(result.results[0].matchType).toBe('exact');
+    });
+
+    it('collects warnings when a wiki fails entirely but returns hits from others', async () => {
+      const registry = createRegistry(
+        { name: 'Good', baseUrl: 'https://good.wiki.com' },
+        { name: 'Bad', baseUrl: 'https://bad.wiki.com' }
+      );
+      const orch = await createOrchestrator(registry);
+
+      const goodRest = getRestMock(orch, 'Good');
+      const goodAction = getActionMock(orch, 'Good');
+      const badRest = getRestMock(orch, 'Bad');
+      const badAction = getActionMock(orch, 'Bad');
+
+      goodAction.resolveTitle.mockResolvedValue({ title: 'Hit', pageid: 1 });
+      goodRest.searchByPrefix.mockResolvedValue(emptyPrefix);
+      goodRest.search.mockResolvedValue(emptySearch);
+
+      // All three Bad signals fail → findInWiki rejects and becomes a warning
+      badAction.resolveTitle.mockRejectedValue(new Error('bad resolve'));
+      badRest.searchByPrefix.mockRejectedValue(new Error('bad prefix'));
+      badRest.search.mockRejectedValue(new Error('bad search'));
+
+      const result = await orch.findPage('Hit');
+
+      // Good wiki still returns its exact hit; bad wiki's individual failures are
+      // tolerated inside findInWiki (Promise.allSettled), so no top-level warning.
+      expect(result.results.map((r) => r.wiki)).toEqual(['Good']);
+      expect(result.results[0].matchType).toBe('exact');
+    });
+
+    it('respects the wiki parameter and skips fan-out', async () => {
+      const registry = createRegistry(
+        { name: 'Sales', baseUrl: 'https://sales.wiki.com' },
+        { name: 'Dev', baseUrl: 'https://dev.wiki.com' }
+      );
+      const orch = await createOrchestrator(registry);
+
+      const salesRest = getRestMock(orch, 'Sales');
+      const salesAction = getActionMock(orch, 'Sales');
+      const devRest = getRestMock(orch, 'Dev');
+      const devAction = getActionMock(orch, 'Dev');
+
+      salesAction.resolveTitle.mockResolvedValue({ title: 'X', pageid: 1 });
+      salesRest.searchByPrefix.mockResolvedValue(emptyPrefix);
+      salesRest.search.mockResolvedValue(emptySearch);
+
+      await orch.findPage('X', { wiki: 'Sales' });
+
+      expect(salesAction.resolveTitle).toHaveBeenCalled();
+      expect(devAction.resolveTitle).not.toHaveBeenCalled();
+      expect(devRest.search).not.toHaveBeenCalled();
     });
   });
 });

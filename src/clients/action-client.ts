@@ -396,6 +396,46 @@ export class ActionClient {
     };
   }
 
+  /**
+   * Resolve a title via the Action API, following redirects and normalization.
+   * Returns the canonical page if it exists, or null if the title is missing.
+   */
+  async resolveTitle(title: string): Promise<{
+    title: string;
+    pageid: number;
+    redirectedFrom?: string;
+  } | null> {
+    const response = await this.request<{
+      query: {
+        redirects?: Array<{ from: string; to: string }>;
+        normalized?: Array<{ from: string; to: string }>;
+        pages: Array<{ pageid?: number; ns: number; title: string; missing?: boolean }>;
+      };
+    }>('GET', {
+      action: 'query',
+      titles: title,
+      redirects: 1,
+      prop: 'info',
+    });
+
+    const page = response.query.pages?.[0];
+    if (!page || page.missing || page.pageid === undefined) {
+      return null;
+    }
+
+    // Trace back through redirects + normalization to find the user's original input
+    const redirects = response.query.redirects ?? [];
+    const normalized = response.query.normalized ?? [];
+    const firstHop = normalized[0]?.from ?? redirects[0]?.from;
+    const redirectedFrom = redirects.length > 0 ? (firstHop ?? title) : undefined;
+
+    return {
+      title: page.title,
+      pageid: page.pageid,
+      redirectedFrom,
+    };
+  }
+
   async deletePage(title: string, reason?: string): Promise<void> {
     const token = await this.getCsrfToken();
 
