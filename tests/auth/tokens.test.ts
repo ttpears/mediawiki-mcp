@@ -33,4 +33,15 @@ describe('BrokerTokens', () => {
     const token = await t.signAccessToken('u', 'c', -10); // already expired
     await expect(t.verifyAccessToken(token)).rejects.toThrow();
   });
+
+  it('signs and verifies a wiki ticket, isolated from access tokens', async () => {
+    const t = new BrokerTokens('secret', AUD, ['mediawiki']);
+    const ticket = await t.signWikiTicket('u1', 'Ops');
+    expect(await t.verifyWikiTicket(ticket)).toEqual({ sub: 'u1', wiki: 'Ops' });
+    // a wiki ticket must not validate as an access token (different audience)...
+    await expect(t.verifyAccessToken(ticket)).rejects.toThrow();
+    // ...and an access token must not validate as a wiki ticket
+    const access = await t.signAccessToken('u1', 'c1');
+    await expect(t.verifyWikiTicket(access)).rejects.toThrow();
+  });
 });

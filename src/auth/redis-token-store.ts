@@ -66,10 +66,10 @@ export class RedisTokenStore implements TokenStore {
 
   async saveWikiToken(r: WikiTokenRecord): Promise<void> {
     const blob = encrypt(JSON.stringify(r), this.encryptionKey);
-    await this.redis.set(this.key('wikitoken', r.sub), blob, { EX: THIRTY_ONE_DAYS });
+    await this.redis.set(this.key('wikitoken', `${r.wiki}:${r.sub}`), blob, { EX: THIRTY_ONE_DAYS });
   }
-  async getWikiToken(sub: string): Promise<WikiTokenRecord | undefined> {
-    const blob = await this.redis.get(this.key('wikitoken', sub));
+  async getWikiToken(sub: string, wiki: string): Promise<WikiTokenRecord | undefined> {
+    const blob = await this.redis.get(this.key('wikitoken', `${wiki}:${sub}`));
     return blob ? (JSON.parse(decrypt(blob, this.encryptionKey)) as WikiTokenRecord) : undefined;
   }
 

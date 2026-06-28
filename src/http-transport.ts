@@ -21,7 +21,8 @@ import { createWikiAuthProvider } from './auth/wiki-auth-provider.js';
 export interface OAuthDeps {
   config: OAuthConfig;
   store: TokenStore;
-  upstream: MediaWikiOAuthClient;
+  /** Map of wiki name → its MediaWiki OAuth client (one per farm wiki). */
+  upstreams: Map<string, MediaWikiOAuthClient>;
 }
 
 interface Session {
@@ -65,13 +66,19 @@ export async function createHTTPServer(
   const sessions = new Map<string, Session>();
 
   // OAuth broker mode: mount auth-server endpoints and protect /mcp with bearer auth.
+  let brokerTokens: BrokerTokens | undefined;
   if (oauth) {
-    const tokens = new BrokerTokens(
+    brokerTokens = new BrokerTokens(
       oauth.config.jwtSecret,
       `${oauth.config.publicUrl}/mcp`,
       oauth.config.scopesSupported
     );
-    const provider = new MediaWikiOAuthProvider(oauth.store, oauth.upstream, tokens);
+    const provider = new MediaWikiOAuthProvider(
+      oauth.store,
+      oauth.upstreams,
+      oauth.config.primaryWiki,
+      brokerTokens
+    );
     const { router, resourceMetadataUrl } = createBrokerRouter(oauth.config, provider);
     app.use(router);
     app.use('/mcp', requireBearerAuth({ verifier: provider, resourceMetadataUrl }));
@@ -88,13 +95,15 @@ export async function createHTTPServer(
       if (!sub) {
         throw new Error('Authenticated request is missing a subject');
       }
-      // Single-wiki: serve only the OAuth-enabled wiki, acting as this user.
-      const wikiConfig = registry.resolveWiki(oauth.config.wiki);
+      // Serve the OAuth-enabled farm wikis, acting as this user on each.
       const userRegistry = new WikiRegistry();
-      userRegistry.addWiki(wikiConfig);
+      for (const w of oauth.config.wikis) {
+        userRegistry.addWiki(registry.resolveWiki(w.name));
+      }
+      userRegistry.setDefault(oauth.config.primaryWiki);
       const orchestrator = new WikiOrchestrator(
         userRegistry,
-        createWikiAuthProvider(sub, oauth.store, oauth.upstream)
+        createWikiAuthProvider(sub, oauth.store, oauth.upstreams, brokerTokens!, oauth.config.publicUrl)
       );
       await orchestrator.initialize();
       return { context: { orchestrator, sessionUser: sub }, sub };
@@ -226,14 +235,15 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         await redis.connect();
         const { RedisTokenStore } = await import('./auth/redis-token-store.js');
         const store = new RedisTokenStore(redis, config.encryptionKey, config.issuerHost);
-        const wikiConfig = registry.resolveWiki(config.wiki);
-        const upstream = new MediaWikiOAuthClient(
-          wikiConfig.baseUrl,
-          config.clientId,
-          config.clientSecret,
-          `${config.publicUrl}/callback`
-        );
-        await createHTTPServer(registry, port, host, { config, store, upstream });
+        const upstreams = new Map<string, MediaWikiOAuthClient>();
+        for (const w of config.wikis) {
+          const wikiConfig = registry.resolveWiki(w.name);
+          upstreams.set(
+            w.name,
+            new MediaWikiOAuthClient(wikiConfig.baseUrl, w.clientId, w.clientSecret, `${config.publicUrl}/callback`)
+          );
+        }
+        await createHTTPServer(registry, port, host, { config, store, upstreams });
       } else {
         await createHTTPServer(registry, port, host);
       }

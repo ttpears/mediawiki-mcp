@@ -38,9 +38,9 @@ describe('RedisTokenStore', () => {
   it('encrypts wiki tokens at rest and decrypts on read', async () => {
     const { redis, map } = fakeRedis();
     const store = new RedisTokenStore(redis, KEY, PREFIX);
-    await store.saveWikiToken({ sub: 'u1', username: 'A', accessToken: 'plain-access', refreshToken: 'plain-refresh', expiresAt: 5 });
-    expect(map.get('mediawiki-mcp.example.com:wikitoken:u1')).not.toContain('plain-access');
-    const rec = await store.getWikiToken('u1');
+    await store.saveWikiToken({ sub: 'u1', wiki: 'Docs', username: 'A', accessToken: 'plain-access', refreshToken: 'plain-refresh', expiresAt: 5 });
+    expect(map.get('mediawiki-mcp.example.com:wikitoken:Docs:u1')).not.toContain('plain-access');
+    const rec = await store.getWikiToken('u1', 'Docs');
     expect(rec?.accessToken).toBe('plain-access');
     expect(rec?.refreshToken).toBe('plain-refresh');
   });

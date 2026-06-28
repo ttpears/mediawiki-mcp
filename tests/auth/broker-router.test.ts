@@ -12,8 +12,8 @@ function makeConfig(): OAuthConfig {
   return {
     publicUrl: 'https://mcp.example.com',
     issuerHost: 'mcp.example.com',
-    wiki: 'Docs',
-    clientId: 'cid',
+    wikis: [{ name: 'Docs', clientId: 'cid' }],
+    primaryWiki: 'Docs',
     redisUrl: 'redis://redis:6379',
     encryptionKey: Buffer.alloc(32, 1),
     jwtSecret: 'secret',
@@ -31,7 +31,8 @@ function makeProvider() {
   } as unknown as MediaWikiOAuthClient;
   const provider = new MediaWikiOAuthProvider(
     new InMemoryTokenStore(),
-    upstream,
+    new Map([['Docs', upstream]]),
+    'Docs',
     new BrokerTokens('secret', 'https://mcp.example.com/mcp', ['mediawiki'])
   );
   return provider;
@@ -64,6 +65,7 @@ describe('createBrokerRouter', () => {
   it('invokes the provider callback and redirects', async () => {
     const provider = makeProvider();
     vi.spyOn(provider, 'handleUpstreamCallback').mockResolvedValue({
+      kind: 'login',
       redirectTo: 'https://claude.ai/api/mcp/auth_callback?code=abc&state=s',
     });
     const app = makeApp(provider);
