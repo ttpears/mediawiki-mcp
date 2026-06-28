@@ -18,6 +18,7 @@ vi.mock('../src/clients/rest-client.js', () => {
     this.updatePage = vi.fn();
     this.setCookieProvider = vi.fn();
     this.setCsrfTokenProvider = vi.fn();
+    this.setBearerTokenProvider = vi.fn();
   });
   return { RestClient };
 });
@@ -36,6 +37,7 @@ vi.mock('../src/clients/action-client.js', () => {
     this.login = vi.fn().mockResolvedValue(undefined);
     this.getCookies = vi.fn().mockReturnValue([]);
     this.getCsrfToken = vi.fn().mockResolvedValue('+\\');
+    this.setBearerTokenProvider = vi.fn();
   });
   return { ActionClient };
 });
@@ -619,5 +621,36 @@ describe('WikiOrchestrator', () => {
       expect(devAction.resolveTitle).not.toHaveBeenCalled();
       expect(devRest.search).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe('WikiOrchestrator OAuth bearer wiring', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it('sets a bearer token provider on clients when an authProvider is given', async () => {
+    const registry = new WikiRegistry();
+    registry.addWiki({ name: 'Docs', baseUrl: 'https://docs.example.com' });
+    const authProvider = { getAccessToken: vi.fn().mockResolvedValue('tok') };
+
+    const orch = new WikiOrchestrator(registry, authProvider);
+    await orch.initialize();
+
+    const action = (ActionClient as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
+    const rest = (RestClient as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(action.setBearerTokenProvider).toHaveBeenCalledTimes(1);
+    expect(rest.setBearerTokenProvider).toHaveBeenCalledTimes(1);
+  });
+
+  it('does not set a bearer token provider without an authProvider', async () => {
+    const registry = new WikiRegistry();
+    registry.addWiki({ name: 'Docs', baseUrl: 'https://docs.example.com' });
+
+    const orch = new WikiOrchestrator(registry);
+    await orch.initialize();
+
+    const action = (ActionClient as unknown as ReturnType<typeof vi.fn>).mock.results[0].value;
+    expect(action.setBearerTokenProvider).not.toHaveBeenCalled();
   });
 });

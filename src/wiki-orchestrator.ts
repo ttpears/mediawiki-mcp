@@ -50,12 +50,22 @@ function rankFoundPages(pages: FoundPage[], limit: number): FoundPage[] {
   return sorted.slice(0, limit);
 }
 
+/**
+ * Supplies a currently-valid wiki access token for OAuth bearer mode. When set on
+ * an orchestrator, clients act as the authenticated user instead of a bot account.
+ */
+export interface WikiAuthProvider {
+  getAccessToken(wikiName: string): Promise<string>;
+}
+
 export class WikiOrchestrator {
   private readonly registry: WikiRegistry;
   private readonly clients = new Map<string, WikiClients>();
+  private readonly authProvider?: WikiAuthProvider;
 
-  constructor(registry: WikiRegistry) {
+  constructor(registry: WikiRegistry, authProvider?: WikiAuthProvider) {
     this.registry = registry;
+    this.authProvider = authProvider;
   }
 
   /** Initialize all wiki clients (login where credentials exist) */
@@ -81,11 +91,18 @@ export class WikiOrchestrator {
     const action = new ActionClient(wiki.name, wiki.baseUrl, wiki.username, wiki.password);
     const rest = new RestClient(wiki.name, wiki.baseUrl);
 
+    // OAuth bearer mode: act as the authenticated user (skips bot-password login)
+    if (this.authProvider) {
+      const tokenFor = (): Promise<string> => this.authProvider!.getAccessToken(wiki.name);
+      action.setBearerTokenProvider(tokenFor);
+      rest.setBearerTokenProvider(tokenFor);
+    }
+
     // Share session cookies and CSRF token from ActionClient → RestClient
     rest.setCookieProvider(() => action.getCookies());
     rest.setCsrfTokenProvider(() => action.getCsrfToken());
 
-    // Login if credentials are provided
+    // Login if credentials are provided (no-op in bearer mode)
     await action.login();
 
     this.clients.set(key, { config: wiki, rest, action });

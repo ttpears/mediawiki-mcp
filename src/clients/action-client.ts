@@ -20,6 +20,7 @@ export class ActionClient {
   private loggedIn = false;
   private readonly username?: string;
   private readonly password?: string;
+  private bearerTokenProvider?: () => Promise<string>;
 
   constructor(wikiName: string, baseUrl: string, username?: string, password?: string) {
     this.wikiName = wikiName;
@@ -56,9 +57,28 @@ export class ActionClient {
       }
       return config;
     });
+
+    // OAuth bearer mode: act as the authenticated user via Authorization header
+    this.client.interceptors.request.use(async (config) => {
+      if (this.bearerTokenProvider) {
+        config.headers['Authorization'] = `Bearer ${await this.bearerTokenProvider()}`;
+      }
+      return config;
+    });
+  }
+
+  /**
+   * Switch this client into OAuth bearer mode: every request carries
+   * `Authorization: Bearer <token>` from the provider, and bot-password login is
+   * skipped. The provider returns a currently-valid wiki access token (refreshed
+   * as needed by the caller).
+   */
+  setBearerTokenProvider(provider: () => Promise<string>): void {
+    this.bearerTokenProvider = provider;
   }
 
   async login(): Promise<void> {
+    if (this.bearerTokenProvider) return; // OAuth handles auth; no bot login
     if (!this.username || !this.password) return;
     if (this.loggedIn) return;
 
