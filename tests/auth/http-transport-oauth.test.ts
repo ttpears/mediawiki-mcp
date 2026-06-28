@@ -14,12 +14,13 @@ const AUD = 'https://mcp.example.com/mcp';
 function makeConfig(): OAuthConfig {
   return {
     publicUrl: 'https://mcp.example.com',
+    issuerHost: 'mcp.example.com',
     wiki: 'Docs',
     clientId: 'cid',
-    clientSecret: 'csecret',
-    databaseUrl: 'postgres://x',
+    redisUrl: 'redis://redis:6379',
     encryptionKey: Buffer.alloc(32, 1),
     jwtSecret: JWT_SECRET,
+    trustProxy: false,
     scopesSupported: ['mediawiki'],
   };
 }

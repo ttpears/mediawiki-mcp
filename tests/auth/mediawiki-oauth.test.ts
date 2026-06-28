@@ -42,6 +42,21 @@ describe('MediaWikiOAuthClient', () => {
     expect(form.get('client_secret')).toBe('consumer-secret');
   });
 
+  it('omits client_secret for a public PKCE client', async () => {
+    const post = vi.fn().mockResolvedValue({ data: { access_token: 'a', refresh_token: 'r', expires_in: 3600 } });
+    const client = new MediaWikiOAuthClient(
+      'https://wiki.example.com',
+      'consumer-id',
+      undefined, // no secret
+      'https://mcp.example.com/callback',
+      { get: vi.fn(), post } as never
+    );
+    await client.exchangeCode('the-code', 'verifier');
+    const form = new URLSearchParams(post.mock.calls[0][1] as string);
+    expect(form.get('client_secret')).toBeNull();
+    expect(form.get('code_verifier')).toBe('verifier');
+  });
+
   it('refreshes tokens', async () => {
     const post = vi.fn().mockResolvedValue({
       data: { access_token: 'a2', refresh_token: 'r2', expires_in: 3600 },

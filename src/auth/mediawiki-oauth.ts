@@ -24,7 +24,7 @@ export class MediaWikiOAuthClient {
   constructor(
     baseUrl: string,
     private readonly clientId: string,
-    private readonly clientSecret: string,
+    private readonly clientSecret: string | undefined,
     private readonly redirectUri: string,
     http?: AxiosInstance
   ) {
@@ -65,9 +65,9 @@ export class MediaWikiOAuthClient {
       code,
       redirect_uri: this.redirectUri,
       client_id: this.clientId,
-      client_secret: this.clientSecret,
       code_verifier: codeVerifier,
     });
+    if (this.clientSecret) body.set('client_secret', this.clientSecret);
     return this.postForTokens(body);
   }
 
@@ -76,8 +76,8 @@ export class MediaWikiOAuthClient {
       grant_type: 'refresh_token',
       refresh_token: refreshToken,
       client_id: this.clientId,
-      client_secret: this.clientSecret,
     });
+    if (this.clientSecret) body.set('client_secret', this.clientSecret);
     return this.postForTokens(body);
   }
 

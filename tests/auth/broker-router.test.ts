@@ -11,12 +11,13 @@ import type { MediaWikiOAuthClient } from '../../src/auth/mediawiki-oauth.js';
 function makeConfig(): OAuthConfig {
   return {
     publicUrl: 'https://mcp.example.com',
+    issuerHost: 'mcp.example.com',
     wiki: 'Docs',
     clientId: 'cid',
-    clientSecret: 'csecret',
-    databaseUrl: 'postgres://x',
+    redisUrl: 'redis://redis:6379',
     encryptionKey: Buffer.alloc(32, 1),
     jwtSecret: 'secret',
+    trustProxy: false,
     scopesSupported: ['mediawiki'],
   };
 }

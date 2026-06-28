@@ -39,6 +39,27 @@ export async function createHTTPServer(
   oauth?: OAuthDeps
 ): Promise<Server> {
   const app = express();
+
+  // Behind traefik: trust X-Forwarded-* so the OAuth rate limiter keys on the real
+  // client IP, not the proxy's (otherwise all clients share one IP). Must be set
+  // before the rate-limited auth router is mounted.
+  if (oauth?.config.trustProxy) {
+    app.set('trust proxy', true);
+  }
+
+  // Restrict accepted Host headers (localhost always allowed for healthchecks).
+  if (oauth?.config.allowedHosts && oauth.config.allowedHosts.length > 0) {
+    const allowed = new Set([...oauth.config.allowedHosts, 'localhost', '127.0.0.1']);
+    app.use((req, res, next) => {
+      const host = (req.headers.host ?? '').split(':')[0];
+      if (!allowed.has(host)) {
+        res.status(421).json({ error: 'misdirected_request' });
+        return;
+      }
+      next();
+    });
+  }
+
   app.use(express.json());
 
   const sessions = new Map<string, Session>();
@@ -198,11 +219,13 @@ if (import.meta.url === `file://${process.argv[1]}`) {
 
     try {
       if (isOAuthMode(env)) {
-        const { Pool } = await import('pg');
         const config = loadOAuthConfig(env);
-        const pool = new Pool({ connectionString: config.databaseUrl });
-        const store = new (await import('./auth/pg-token-store.js')).PgTokenStore(pool, config.encryptionKey);
-        await store.init();
+        const { createClient } = await import('redis');
+        const redis = createClient({ url: config.redisUrl });
+        redis.on('error', (err) => console.error('Redis error:', err));
+        await redis.connect();
+        const { RedisTokenStore } = await import('./auth/redis-token-store.js');
+        const store = new RedisTokenStore(redis, config.encryptionKey, config.issuerHost);
         const wikiConfig = registry.resolveWiki(config.wiki);
         const upstream = new MediaWikiOAuthClient(
           wikiConfig.baseUrl,

@@ -9,8 +9,7 @@ function validEnv(): Record<string, string> {
     MEDIAWIKI_MCP_PUBLIC_URL: 'https://mcp.example.com/',
     MEDIAWIKI_OAUTH_WIKI: 'Docs',
     MEDIAWIKI_OAUTH_CLIENT_ID: 'client-abc',
-    MEDIAWIKI_OAUTH_CLIENT_SECRET: 'secret-xyz',
-    DATABASE_URL: 'postgres://localhost/mw',
+    REDIS_URL: 'redis://:pass@redis:6379',
     MEDIAWIKI_MCP_ENCRYPTION_KEY: KEY_B64,
     MEDIAWIKI_MCP_JWT_SECRET: 'jwt-signing-secret',
   };
@@ -28,14 +27,28 @@ describe('loadOAuthConfig', () => {
   it('parses a valid environment', () => {
     const cfg = loadOAuthConfig(validEnv());
     expect(cfg.publicUrl).toBe('https://mcp.example.com'); // trailing slash stripped
+    expect(cfg.issuerHost).toBe('mcp.example.com');
     expect(cfg.wiki).toBe('Docs');
     expect(cfg.clientId).toBe('client-abc');
-    expect(cfg.clientSecret).toBe('secret-xyz');
-    expect(cfg.databaseUrl).toBe('postgres://localhost/mw');
+    expect(cfg.clientSecret).toBeUndefined(); // public PKCE by default
+    expect(cfg.redisUrl).toBe('redis://:pass@redis:6379');
     expect(cfg.encryptionKey).toBeInstanceOf(Buffer);
     expect(cfg.encryptionKey).toHaveLength(32);
     expect(cfg.jwtSecret).toBe('jwt-signing-secret');
+    expect(cfg.trustProxy).toBe(false);
+    expect(cfg.allowedHosts).toBeUndefined();
     expect(cfg.scopesSupported).toEqual(['mediawiki']);
+  });
+
+  it('reads optional secret, trust proxy, and allowed hosts', () => {
+    const env = validEnv();
+    env.MEDIAWIKI_OAUTH_CLIENT_SECRET = 'secret-xyz';
+    env.MEDIAWIKI_MCP_TRUST_PROXY = '1';
+    env.MEDIAWIKI_MCP_ALLOWED_HOSTS = 'mcp.example.com, localhost';
+    const cfg = loadOAuthConfig(env);
+    expect(cfg.clientSecret).toBe('secret-xyz');
+    expect(cfg.trustProxy).toBe(true);
+    expect(cfg.allowedHosts).toEqual(['mcp.example.com', 'localhost']);
   });
 
   it('throws naming a missing required variable', () => {
