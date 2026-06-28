@@ -199,6 +199,60 @@ mcpServers:
 
 > If you have `allowedDomains` configured in LibreChat, add `mediawiki-mcp` to the list.
 
+### Use as a Claude.ai Connector (OAuth)
+
+The HTTP transport can run as a public, OAuth-authenticated remote connector for
+claude.ai. In this mode each user logs in through your wiki's **MediaWiki OAuth**
+and acts on the wiki **as themselves** — their own wiki permissions are the
+ceiling. The server is an OAuth 2.1 broker: it presents standard
+authorization-server metadata and Dynamic Client Registration to Claude, runs the
+upstream OAuth flow against the wiki, stores each user's wiki tokens (encrypted)
+in Postgres, and issues its own audience-bound access tokens to Claude. The
+stdio and LibreChat header paths are unaffected.
+
+This mode is **single-wiki**: it serves the one wiki you register the consumer on
+(`MEDIAWIKI_OAUTH_WIKI`). Multi-wiki fan-out remains available on the
+bot-password paths.
+
+**1. Enable the OAuth extension and register a consumer on the wiki**
+
+- Install/enable [Extension:OAuth](https://www.mediawiki.org/wiki/Extension:OAuth)
+  (OAuth 2.0; MediaWiki 1.35+).
+- Register a **confidential** OAuth 2.0 consumer at
+  `Special:OAuthConsumerRegistration/propose/oauth2`:
+  - Callback URL: `https://<your-public-url>/callback`
+  - Grant it a **broad** set of grants (e.g. basic, high-volume editing, page
+    management, upload) so each user's own rights — not the consumer's grants —
+    are the limit.
+  - A consumer that acts on behalf of other users must be **approved** by an
+    OAuth admin (`mwoauthmanageconsumer`).
+- Note the issued client id and secret.
+
+**2. Configure the connector environment**
+
+```bash
+MEDIAWIKI_MCP_AUTH=oauth
+MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com   # public HTTPS base URL
+MEDIAWIKI_OAUTH_WIKI=Main                               # registered wiki name to serve
+MEDIAWIKI_OAUTH_CLIENT_ID=<consumer client id>
+MEDIAWIKI_OAUTH_CLIENT_SECRET=<consumer client secret>
+DATABASE_URL=postgres://user:pass@host:5432/mediawiki_mcp
+MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>  # openssl rand -base64 32
+MEDIAWIKI_MCP_JWT_SECRET=<random secret>
+MEDIAWIKI_MCP_HOST=0.0.0.0
+# plus the usual MEDIAWIKI_WIKIS / per-wiki entry for MEDIAWIKI_OAUTH_WIKI
+```
+
+Terminate TLS at your reverse proxy and forward to the server; the server must be
+reachable at `MEDIAWIKI_MCP_PUBLIC_URL`. Start with `npm run start:http`.
+
+**3. Add the connector in claude.ai**
+
+Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude
+discovers the auth server via `/.well-known/oauth-protected-resource/mcp`,
+registers itself via DCR, and walks the user through wiki login. On first use the
+user authorizes the consumer once; access/refresh tokens keep the session alive.
+
 ## Tools
 
 All tools that accept a `wiki` parameter will use the default wiki when omitted. Search and listing tools fan out across all registered wikis when `wiki` is not specified.
