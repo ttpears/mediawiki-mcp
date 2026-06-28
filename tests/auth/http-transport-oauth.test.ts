@@ -15,8 +15,8 @@ function makeConfig(): OAuthConfig {
   return {
     publicUrl: 'https://mcp.example.com',
     issuerHost: 'mcp.example.com',
-    wikis: [{ name: 'Docs', clientId: 'cid' }],
-    primaryWiki: 'Docs',
+    wiki: 'Docs',
+    clientId: 'cid',
     redisUrl: 'redis://redis:6379',
     encryptionKey: Buffer.alloc(32, 1),
     jwtSecret: JWT_SECRET,
@@ -43,8 +43,7 @@ describe('HTTP transport OAuth mode', () => {
     registry.addWiki({ name: 'Docs', baseUrl: 'https://docs.example.com' });
     store = new InMemoryTokenStore();
     const upstream = { refresh: vi.fn(), exchangeCode: vi.fn(), fetchIdentity: vi.fn(), buildAuthorizeUrl: vi.fn() } as unknown as MediaWikiOAuthClient;
-    const upstreams = new Map([['Docs', upstream]]);
-    server = await createHTTPServer(registry, 0, '127.0.0.1', { config: makeConfig(), store, upstreams });
+    server = await createHTTPServer(registry, 0, '127.0.0.1', { config: makeConfig(), store, upstream });
   });
 
   afterEach(() => {

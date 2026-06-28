@@ -4,25 +4,17 @@
  * Only used when MEDIAWIKI_MCP_AUTH=oauth. The stdio and LibreChat header-HTTP
  * paths never call loadOAuthConfig.
  */
-/** One farm wiki's OAuth consumer. */
-export interface WikiOAuthConsumer {
-  /** Registered wiki name (matches MEDIAWIKI_WIKIS). */
-  name: string;
-  /** Wiki OAuth consumer client id. */
-  clientId: string;
-  /** Consumer client secret. Omitted for public PKCE consumers. */
-  clientSecret?: string;
-}
-
 export interface OAuthConfig {
   /** Public base URL of this MCP server, no trailing slash (e.g. https://mcp.example.com). */
   publicUrl: string;
   /** Host portion of publicUrl, used to namespace shared-Redis keys. */
   issuerHost: string;
-  /** OAuth-enabled farm wikis, each with its own consumer. */
-  wikis: WikiOAuthConsumer[];
-  /** Wiki used for the initial Claude login (must be one of `wikis`). */
-  primaryWiki: string;
+  /** Registered wiki name this connector brokers OAuth for. */
+  wiki: string;
+  /** Wiki OAuth consumer client id. */
+  clientId: string;
+  /** Wiki OAuth consumer client secret. Omitted for public PKCE consumers. */
+  clientSecret?: string;
   /** Redis connection URL for shared broker state (redis://[:pass@]host:port). */
   redisUrl: string;
   /** 32-byte key for AES-256-GCM encryption of stored wiki tokens. */
@@ -52,28 +44,9 @@ function required(env: Record<string, string | undefined>, name: string): string
 export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthConfig {
   const publicUrl = required(env, 'MEDIAWIKI_MCP_PUBLIC_URL').replace(/\/+$/, '');
   const issuerHost = new URL(publicUrl).host;
-
-  // OAuth-enabled wikis: MEDIAWIKI_OAUTH_WIKIS=itops,tech,... each with a
-  // MEDIAWIKI_OAUTH_CLIENT_ID_<WIKI> (+ optional _SECRET_<WIKI>).
-  const wikiNames = required(env, 'MEDIAWIKI_OAUTH_WIKIS')
-    .split(',').map((w) => w.trim()).filter((w) => w.length > 0);
-  if (wikiNames.length === 0) {
-    throw new Error('MEDIAWIKI_OAUTH_WIKIS must list at least one wiki');
-  }
-  const wikis: WikiOAuthConsumer[] = wikiNames.map((name) => {
-    const upper = name.toUpperCase();
-    return {
-      name,
-      clientId: required(env, `MEDIAWIKI_OAUTH_CLIENT_ID_${upper}`),
-      clientSecret: env[`MEDIAWIKI_OAUTH_CLIENT_SECRET_${upper}`]?.trim() || undefined,
-    };
-  });
-
-  const primaryWiki = env.MEDIAWIKI_OAUTH_PRIMARY_WIKI?.trim() || wikiNames[0];
-  if (!wikis.some((w) => w.name === primaryWiki)) {
-    throw new Error(`MEDIAWIKI_OAUTH_PRIMARY_WIKI "${primaryWiki}" is not in MEDIAWIKI_OAUTH_WIKIS`);
-  }
-
+  const wiki = required(env, 'MEDIAWIKI_OAUTH_WIKI');
+  const clientId = required(env, 'MEDIAWIKI_OAUTH_CLIENT_ID');
+  const clientSecret = env.MEDIAWIKI_OAUTH_CLIENT_SECRET?.trim() || undefined;
   const redisUrl = required(env, 'REDIS_URL');
   const jwtSecret = required(env, 'MEDIAWIKI_MCP_JWT_SECRET');
 
@@ -92,8 +65,9 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
   return {
     publicUrl,
     issuerHost,
-    wikis,
-    primaryWiki,
+    wiki,
+    clientId,
+    clientSecret,
     redisUrl,
     encryptionKey,
     jwtSecret,

@@ -28,13 +28,7 @@ function counterGenId(): () => string {
 
 function makeProvider(store = new InMemoryTokenStore(), upstream = makeUpstream()) {
   const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-  const upstreams = new Map([['Docs', upstream]]);
-  return {
-    provider: new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId()),
-    store,
-    upstream,
-    tokens,
-  };
+  return { provider: new MediaWikiOAuthProvider(store, upstream, tokens, counterGenId()), store, upstream, tokens };
 }
 
 describe('MediaWikiOAuthProvider', () => {
@@ -58,15 +52,14 @@ describe('MediaWikiOAuthProvider', () => {
     const redirect = vi.fn();
     await provider.authorize(CLIENT, { redirectUri: 'https://claude.ai/api/mcp/auth_callback', state: 'cs', codeChallenge: 'claude-chal' } as never, { redirect } as never);
 
-    const result = await provider.handleUpstreamCallback('wiki-code', 'id0');
-    expect(result.kind).toBe('login');
-    const url = new URL((result as { redirectTo: string }).redirectTo);
+    const { redirectTo } = await provider.handleUpstreamCallback('wiki-code', 'id0');
+    const url = new URL(redirectTo);
     expect(url.origin + url.pathname).toBe('https://claude.ai/api/mcp/auth_callback');
     expect(url.searchParams.get('state')).toBe('cs');
     const brokerCode = url.searchParams.get('code')!;
     expect(brokerCode).toBeTruthy();
 
-    const wikiTok = await store.getWikiToken('user-7', 'Docs');
+    const wikiTok = await store.getWikiToken('user-7');
     expect(wikiTok?.accessToken).toBe('wiki-a');
     expect(wikiTok?.username).toBe('Bob');
 
@@ -77,43 +70,6 @@ describe('MediaWikiOAuthProvider', () => {
     const info = await provider.verifyAccessToken(issued.access_token);
     expect(info.extra?.sub).toBe('user-7');
     expect(issued.refresh_token).toBeTruthy();
-  });
-
-  it('lazy-authorizes a second wiki when the username matches the primary identity', async () => {
-    const store = new InMemoryTokenStore();
-    const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-    const docs = makeUpstream();
-    const ops = makeUpstream({
-      exchangeCode: vi.fn().mockResolvedValue({ accessToken: 'ops-a', refreshToken: 'ops-r', expiresIn: 3600 }),
-      fetchIdentity: vi.fn().mockResolvedValue({ sub: 'user-7', username: 'Bob' }),
-    });
-    const upstreams = new Map([['Docs', docs], ['Ops', ops]]);
-    const provider = new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId());
-
-    // user already signed in to the primary wiki
-    await store.saveWikiToken({ sub: 'user-7', wiki: 'Docs', username: 'Bob', accessToken: 'd', refreshToken: 'dr', expiresAt: Date.now() + 1e6 });
-
-    const ticket = await tokens.signWikiTicket('user-7', 'Ops');
-    await provider.beginWikiAuthorization(ticket); // pending state = id0
-    const result = await provider.handleUpstreamCallback('ops-code', 'id0');
-    expect(result).toEqual({ kind: 'lazy', wiki: 'Ops' });
-    expect((await store.getWikiToken('user-7', 'Ops'))?.accessToken).toBe('ops-a');
-  });
-
-  it('rejects lazy authorization when the wiki username does not match', async () => {
-    const store = new InMemoryTokenStore();
-    const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-    const ops = makeUpstream({
-      fetchIdentity: vi.fn().mockResolvedValue({ sub: 'x', username: 'Mallory' }),
-    });
-    const upstreams = new Map([['Docs', makeUpstream()], ['Ops', ops]]);
-    const provider = new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId());
-    await store.saveWikiToken({ sub: 'user-7', wiki: 'Docs', username: 'Bob', accessToken: 'd', refreshToken: 'dr', expiresAt: Date.now() + 1e6 });
-
-    const ticket = await tokens.signWikiTicket('user-7', 'Ops');
-    await provider.beginWikiAuthorization(ticket);
-    await expect(provider.handleUpstreamCallback('ops-code', 'id0')).rejects.toThrow(/does not match/);
-    expect(await store.getWikiToken('user-7', 'Ops')).toBeUndefined();
   });
 
   it('rejects an unknown authorization state', async () => {

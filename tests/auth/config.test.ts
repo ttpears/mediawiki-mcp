@@ -7,10 +7,8 @@ function validEnv(): Record<string, string> {
   return {
     MEDIAWIKI_MCP_AUTH: 'oauth',
     MEDIAWIKI_MCP_PUBLIC_URL: 'https://mcp.example.com/',
-    MEDIAWIKI_OAUTH_WIKIS: 'Docs,Ops',
-    MEDIAWIKI_OAUTH_CLIENT_ID_DOCS: 'client-docs',
-    MEDIAWIKI_OAUTH_CLIENT_ID_OPS: 'client-ops',
-    MEDIAWIKI_OAUTH_PRIMARY_WIKI: 'Docs',
+    MEDIAWIKI_OAUTH_WIKI: 'Docs',
+    MEDIAWIKI_OAUTH_CLIENT_ID: 'client-abc',
     REDIS_URL: 'redis://:pass@redis:6379',
     MEDIAWIKI_MCP_ENCRYPTION_KEY: KEY_B64,
     MEDIAWIKI_MCP_JWT_SECRET: 'jwt-signing-secret',
@@ -30,11 +28,9 @@ describe('loadOAuthConfig', () => {
     const cfg = loadOAuthConfig(validEnv());
     expect(cfg.publicUrl).toBe('https://mcp.example.com'); // trailing slash stripped
     expect(cfg.issuerHost).toBe('mcp.example.com');
-    expect(cfg.wikis).toEqual([
-      { name: 'Docs', clientId: 'client-docs', clientSecret: undefined },
-      { name: 'Ops', clientId: 'client-ops', clientSecret: undefined },
-    ]);
-    expect(cfg.primaryWiki).toBe('Docs');
+    expect(cfg.wiki).toBe('Docs');
+    expect(cfg.clientId).toBe('client-abc');
+    expect(cfg.clientSecret).toBeUndefined(); // public PKCE by default
     expect(cfg.redisUrl).toBe('redis://:pass@redis:6379');
     expect(cfg.encryptionKey).toBeInstanceOf(Buffer);
     expect(cfg.encryptionKey).toHaveLength(32);
@@ -44,29 +40,21 @@ describe('loadOAuthConfig', () => {
     expect(cfg.scopesSupported).toEqual(['mediawiki']);
   });
 
-  it('defaults the primary wiki to the first and reads per-wiki secret + proxy + hosts', () => {
+  it('reads optional secret, trust proxy, and allowed hosts', () => {
     const env = validEnv();
-    delete env.MEDIAWIKI_OAUTH_PRIMARY_WIKI;
-    env.MEDIAWIKI_OAUTH_CLIENT_SECRET_DOCS = 'secret-xyz';
+    env.MEDIAWIKI_OAUTH_CLIENT_SECRET = 'secret-xyz';
     env.MEDIAWIKI_MCP_TRUST_PROXY = '1';
     env.MEDIAWIKI_MCP_ALLOWED_HOSTS = 'mcp.example.com, localhost';
     const cfg = loadOAuthConfig(env);
-    expect(cfg.primaryWiki).toBe('Docs'); // first listed
-    expect(cfg.wikis[0].clientSecret).toBe('secret-xyz');
+    expect(cfg.clientSecret).toBe('secret-xyz');
     expect(cfg.trustProxy).toBe(true);
     expect(cfg.allowedHosts).toEqual(['mcp.example.com', 'localhost']);
   });
 
-  it('throws when the primary wiki is not in the list', () => {
-    const env = validEnv();
-    env.MEDIAWIKI_OAUTH_PRIMARY_WIKI = 'Nope';
-    expect(() => loadOAuthConfig(env)).toThrow('MEDIAWIKI_OAUTH_PRIMARY_WIKI');
-  });
-
   it('throws naming a missing required variable', () => {
     const env = validEnv();
-    delete env.MEDIAWIKI_OAUTH_CLIENT_ID_DOCS;
-    expect(() => loadOAuthConfig(env)).toThrow('MEDIAWIKI_OAUTH_CLIENT_ID_DOCS');
+    delete env.MEDIAWIKI_OAUTH_CLIENT_ID;
+    expect(() => loadOAuthConfig(env)).toThrow('MEDIAWIKI_OAUTH_CLIENT_ID');
   });
 
   it('throws when the encryption key is not 32 bytes', () => {

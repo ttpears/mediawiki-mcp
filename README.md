@@ -211,51 +211,41 @@ in **Redis** (keys namespaced by the connector's host, so one shared Redis serve
 several connectors), and issues its own audience-bound access tokens to Claude.
 The stdio and LibreChat header paths are unaffected.
 
-This mode covers a **wiki farm**: one connector serves all the wikis listed in
-`MEDIAWIKI_OAUTH_WIKIS`, keeping cross-wiki fan-out. Because each MediaWiki is its
-own OAuth provider, each wiki has its own consumer and its own per-user consent.
-At setup the user logs into the **primary** wiki; the first time a tool touches
-another wiki, the result includes an "authorize `<wiki>`" link to consent to that
-wiki (one click), after which it's stored and reused. (Farm wikis are assumed
-LDAP-backed, so the username is consistent across them — the broker enforces that
-match when storing each wiki's token.)
+This mode is **single-wiki**: it serves the one wiki you register the consumer on
+(`MEDIAWIKI_OAUTH_WIKI`). Multi-wiki fan-out remains available on the
+bot-password paths.
 
-**1. Enable the OAuth extension and register a consumer on each wiki**
+**1. Enable the OAuth extension and register a consumer on the wiki**
 
 - Install/enable [Extension:OAuth](https://www.mediawiki.org/wiki/Extension:OAuth)
-  (OAuth 2.0; MediaWiki 1.35+, 1.46+ recommended for secret-less refresh).
-- On **each** farm wiki, register a **public PKCE** OAuth 2.0 consumer at
+  (OAuth 2.0; MediaWiki 1.35+).
+- Register a **public PKCE** OAuth 2.0 consumer at
   `Special:OAuthConsumerRegistration/propose/oauth2`:
   - Callback URL: `https://<your-public-url>/callback`
-  - Grant it a **broad** set of grants (basic, high-volume editing, page
+  - Grant it a **broad** set of grants (e.g. basic, high-volume editing, page
     management, upload) so each user's own rights — not the consumer's grants —
     are the limit.
   - A consumer that acts on behalf of other users must be **approved** by an
     OAuth admin (`mwoauthmanageconsumer`).
-- Note each wiki's issued client id. No secret is needed for a public PKCE
-  consumer (set `MEDIAWIKI_OAUTH_CLIENT_SECRET_<WIKI>` only for a confidential
+- Note the issued client id. No secret is needed for a public PKCE consumer
+  (set `MEDIAWIKI_OAUTH_CLIENT_SECRET` only if you registered a confidential
   one — required for token refresh on MediaWiki **below 1.46**).
 
 **2. Configure the connector environment**
 
 ```bash
 MEDIAWIKI_MCP_AUTH=oauth
-MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com    # public HTTPS base URL
-# the farm in the registry (Name:URL pairs):
-MEDIAWIKI_WIKIS=itops:https://itops.wiki.example.com,tech:https://tech.wiki.example.com
-# which of those have OAuth consumers, and which is the login wiki:
-MEDIAWIKI_OAUTH_WIKIS=itops,tech
-MEDIAWIKI_OAUTH_PRIMARY_WIKI=itops
-# per-wiki consumer application ids (uppercased wiki name):
-MEDIAWIKI_OAUTH_CLIENT_ID_ITOPS=<itops application id>
-MEDIAWIKI_OAUTH_CLIENT_ID_TECH=<tech application id>
-# MEDIAWIKI_OAUTH_CLIENT_SECRET_ITOPS=<only for a confidential consumer>
-REDIS_URL=redis://:<password>@redis:6379                 # shared broker state
-MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>   # openssl rand -base64 32
+MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com   # public HTTPS base URL
+MEDIAWIKI_OAUTH_WIKI=Main                               # registered wiki name to serve
+MEDIAWIKI_OAUTH_CLIENT_ID=<consumer application id>
+# MEDIAWIKI_OAUTH_CLIENT_SECRET=<only for a confidential consumer>
+REDIS_URL=redis://:<password>@redis:6379                # shared broker state
+MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>  # openssl rand -base64 32
 MEDIAWIKI_MCP_JWT_SECRET=<random secret>
 MEDIAWIKI_MCP_HOST=0.0.0.0
-MEDIAWIKI_MCP_TRUST_PROXY=1                               # behind a reverse proxy
-# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com        # optional Host allowlist
+MEDIAWIKI_MCP_TRUST_PROXY=1                             # when running behind a reverse proxy
+# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com      # optional Host-header allowlist
+# plus the usual MEDIAWIKI_WIKIS / per-wiki entry for MEDIAWIKI_OAUTH_WIKI
 ```
 
 Terminate TLS at your reverse proxy and forward to the server; the server must be
@@ -268,9 +258,8 @@ OAuth rate limiter sees the real client IP.
 
 Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude
 discovers the auth server via `/.well-known/oauth-protected-resource/mcp`,
-registers itself via DCR, and walks the user through login on the primary wiki.
-Additional farm wikis are authorized on first use via the link surfaced in the
-tool result.
+registers itself via DCR, and walks the user through wiki login. On first use the
+user authorizes the consumer once; access/refresh tokens keep the session alive.
 
 ## Tools
 

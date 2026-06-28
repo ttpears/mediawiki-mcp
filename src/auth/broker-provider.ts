@@ -28,26 +28,13 @@ function pkceChallenge(verifier: string): string {
 export class MediaWikiOAuthProvider implements OAuthServerProvider {
   private readonly genId: () => string;
 
-  /**
-   * @param upstreams map of wiki name → its MediaWiki OAuth client
-   * @param primaryWiki wiki used for the initial Claude login
-   */
   constructor(
     private readonly store: TokenStore,
-    private readonly upstreams: Map<string, MediaWikiOAuthClient>,
-    private readonly primaryWiki: string,
+    private readonly upstream: MediaWikiOAuthClient,
     private readonly tokens: BrokerTokens,
     genId?: () => string
   ) {
     this.genId = genId ?? (() => randomBytes(32).toString('hex'));
-  }
-
-  private upstreamFor(wiki: string): MediaWikiOAuthClient {
-    const client = this.upstreams.get(wiki);
-    if (!client) {
-      throw new Error(`No OAuth consumer configured for wiki "${wiki}"`);
-    }
-    return client;
   }
 
   get clientsStore(): OAuthRegisteredClientsStore {
@@ -76,8 +63,6 @@ export class MediaWikiOAuthProvider implements OAuthServerProvider {
 
     await this.store.savePendingAuth({
       brokerState,
-      wiki: this.primaryWiki,
-      kind: 'login',
       clientId: client.client_id,
       clientRedirectUri: params.redirectUri,
       clientState: params.state,
@@ -86,96 +71,46 @@ export class MediaWikiOAuthProvider implements OAuthServerProvider {
       createdAt: Date.now(),
     });
 
-    res.redirect(this.upstreamFor(this.primaryWiki).buildAuthorizeUrl(brokerState, upstreamChallenge));
+    res.redirect(this.upstream.buildAuthorizeUrl(brokerState, upstreamChallenge));
   }
 
   /**
-   * Starts lazy per-wiki consent for an already-authenticated user. Verifies the
-   * signed ticket ({ sub, wiki }) and returns the upstream authorize URL to redirect to.
+   * Called by the custom /callback route once the wiki redirects back. Exchanges
+   * the upstream code, persists the user's wiki tokens, and mints a broker
+   * authorization code for the MCP client. Returns where to redirect the browser.
    */
-  async beginWikiAuthorization(ticket: string): Promise<{ redirectTo: string }> {
-    const { sub, wiki } = await this.tokens.verifyWikiTicket(ticket);
-    const upstream = this.upstreamFor(wiki); // throws if wiki unknown
-    const brokerState = this.genId();
-    const upstreamCodeVerifier = this.genId();
-    const upstreamChallenge = pkceChallenge(upstreamCodeVerifier);
-
-    await this.store.savePendingAuth({
-      brokerState,
-      wiki,
-      kind: 'lazy',
-      sub,
-      upstreamCodeVerifier,
-      createdAt: Date.now(),
-    });
-
-    return { redirectTo: upstream.buildAuthorizeUrl(brokerState, upstreamChallenge) };
-  }
-
-  /**
-   * Called by the /callback route once a wiki redirects back. Handles both the
-   * initial login flow (mints a broker auth code, redirects to Claude) and lazy
-   * per-wiki consent (stores the (sub, wiki) token after verifying the username
-   * matches the user's primary identity). The result discriminates the two.
-   */
-  async handleUpstreamCallback(
-    code: string,
-    brokerState: string
-  ): Promise<{ kind: 'login'; redirectTo: string } | { kind: 'lazy'; wiki: string }> {
+  async handleUpstreamCallback(code: string, brokerState: string): Promise<{ redirectTo: string }> {
     const pending = await this.store.takePendingAuth(brokerState);
     if (!pending) {
       throw new Error('Unknown or expired authorization state');
     }
 
-    const upstream = this.upstreamFor(pending.wiki);
-    const upstreamTokens = await upstream.exchangeCode(code, pending.upstreamCodeVerifier);
-    const identity = await upstream.fetchIdentity(upstreamTokens.accessToken);
+    const upstreamTokens = await this.upstream.exchangeCode(code, pending.upstreamCodeVerifier);
+    const identity = await this.upstream.fetchIdentity(upstreamTokens.accessToken);
 
-    if (pending.kind === 'lazy') {
-      const sub = pending.sub!;
-      // Token-fixation guard: the wiki identity must match the user's primary
-      // identity (farm wikis are LDAP-backed, so usernames are consistent).
-      const primary = await this.store.getWikiToken(sub, this.primaryWiki);
-      if (!primary || primary.username !== identity.username) {
-        throw new Error('Authorized wiki account does not match your identity');
-      }
-      await this.persistWikiToken(sub, pending.wiki, identity.username, upstreamTokens);
-      return { kind: 'lazy', wiki: pending.wiki };
-    }
+    await this.store.saveWikiToken({
+      sub: identity.sub,
+      username: identity.username,
+      accessToken: upstreamTokens.accessToken,
+      refreshToken: upstreamTokens.refreshToken,
+      expiresAt: Date.now() + upstreamTokens.expiresIn * 1000,
+    });
 
-    // login kind
-    await this.persistWikiToken(identity.sub, pending.wiki, identity.username, upstreamTokens);
     const brokerCode = this.genId();
     await this.store.saveAuthCode({
       code: brokerCode,
       sub: identity.sub,
-      clientId: pending.clientId!,
-      clientCodeChallenge: pending.clientCodeChallenge!,
+      clientId: pending.clientId,
+      clientCodeChallenge: pending.clientCodeChallenge,
       createdAt: Date.now(),
     });
 
-    const redirect = new URL(pending.clientRedirectUri!);
+    const redirect = new URL(pending.clientRedirectUri);
     redirect.searchParams.set('code', brokerCode);
     if (pending.clientState !== undefined) {
       redirect.searchParams.set('state', pending.clientState);
     }
-    return { kind: 'login', redirectTo: redirect.toString() };
-  }
-
-  private async persistWikiToken(
-    sub: string,
-    wiki: string,
-    username: string,
-    tokens: { accessToken: string; refreshToken: string; expiresIn: number }
-  ): Promise<void> {
-    await this.store.saveWikiToken({
-      sub,
-      wiki,
-      username,
-      accessToken: tokens.accessToken,
-      refreshToken: tokens.refreshToken,
-      expiresAt: Date.now() + tokens.expiresIn * 1000,
-    });
+    return { redirectTo: redirect.toString() };
   }
 
   async challengeForAuthorizationCode(
