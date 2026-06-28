@@ -211,18 +211,22 @@ in **Redis** (keys namespaced by the connector's host, so one shared Redis serve
 several connectors), and issues its own audience-bound access tokens to Claude.
 The stdio and LibreChat header paths are unaffected.
 
-This mode is **single-wiki**: it serves the one wiki you register the consumer on
-(`MEDIAWIKI_OAUTH_WIKI`). Multi-wiki fan-out remains available on the
-bot-password paths.
+This mode supports a **wiki farm with shared central OAuth** (CentralAuth): one
+consumer is registered on the **central OAuth wiki**, the user consents once, and
+the resulting token authenticates **farm-wide**. The connector serves every wiki
+in `MEDIAWIKI_WIKIS` (cross-wiki fan-out) using that single token, while
+`MEDIAWIKI_OAUTH_WIKI` names the central wiki whose OAuth endpoints are used.
+(If your wikis are standalone rather than CentralAuth, point this at a single
+wiki and run one connector per wiki.)
 
-**1. Enable the OAuth extension and register a consumer on the wiki**
+**1. Enable the OAuth extension and register one consumer on the central wiki**
 
 - Install/enable [Extension:OAuth](https://www.mediawiki.org/wiki/Extension:OAuth)
-  (OAuth 2.0; MediaWiki 1.35+).
-- Register a **public PKCE** OAuth 2.0 consumer at
-  `Special:OAuthConsumerRegistration/propose/oauth2`:
+  (OAuth 2.0; MediaWiki 1.35+, 1.46+ recommended for secret-less refresh).
+- On the **central** wiki, register a **public PKCE** OAuth 2.0 consumer at
+  `Special:OAuthConsumerRegistration/propose/oauth2` (or via `POST /rest.php/oauth2/client`):
   - Callback URL: `https://<your-public-url>/callback`
-  - Grant it a **broad** set of grants (e.g. basic, high-volume editing, page
+  - Grant it a **broad** set of grants (basic, high-volume editing, page
     management, upload) so each user's own rights — not the consumer's grants —
     are the limit.
   - A consumer that acts on behalf of other users must be **approved** by an
@@ -235,17 +239,19 @@ bot-password paths.
 
 ```bash
 MEDIAWIKI_MCP_AUTH=oauth
-MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com   # public HTTPS base URL
-MEDIAWIKI_OAUTH_WIKI=Main                               # registered wiki name to serve
+MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com    # public HTTPS base URL
+# the farm to serve (Name:URL pairs) — all authenticated by the central token:
+MEDIAWIKI_WIKIS=itops:https://itops.wiki.example.com,tech:https://tech.wiki.example.com
+MEDIAWIKI_DEFAULT_WIKI=itops
+MEDIAWIKI_OAUTH_WIKI=itops                               # the CENTRAL OAuth wiki
 MEDIAWIKI_OAUTH_CLIENT_ID=<consumer application id>
 # MEDIAWIKI_OAUTH_CLIENT_SECRET=<only for a confidential consumer>
-REDIS_URL=redis://:<password>@redis:6379                # shared broker state
-MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>  # openssl rand -base64 32
+REDIS_URL=redis://:<password>@redis:6379                 # shared broker state
+MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>   # openssl rand -base64 32
 MEDIAWIKI_MCP_JWT_SECRET=<random secret>
 MEDIAWIKI_MCP_HOST=0.0.0.0
-MEDIAWIKI_MCP_TRUST_PROXY=1                             # when running behind a reverse proxy
-# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com      # optional Host-header allowlist
-# plus the usual MEDIAWIKI_WIKIS / per-wiki entry for MEDIAWIKI_OAUTH_WIKI
+MEDIAWIKI_MCP_TRUST_PROXY=1                              # behind a reverse proxy
+# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com       # optional Host allowlist
 ```
 
 Terminate TLS at your reverse proxy and forward to the server; the server must be

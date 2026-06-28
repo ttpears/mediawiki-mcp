@@ -88,12 +88,11 @@ export async function createHTTPServer(
       if (!sub) {
         throw new Error('Authenticated request is missing a subject');
       }
-      // Single-wiki: serve only the OAuth-enabled wiki, acting as this user.
-      const wikiConfig = registry.resolveWiki(oauth.config.wiki);
-      const userRegistry = new WikiRegistry();
-      userRegistry.addWiki(wikiConfig);
+      // Shared central OAuth: the central-wiki token authenticates farm-wide, so
+      // serve the whole registry (all farm wikis) acting as this user with the
+      // one token. OAuth endpoints live on the central wiki (oauth.config.wiki).
       const orchestrator = new WikiOrchestrator(
-        userRegistry,
+        registry,
         createWikiAuthProvider(sub, oauth.store, oauth.upstream)
       );
       await orchestrator.initialize();
