@@ -34,13 +34,14 @@ describe('InMemoryTokenStore', () => {
     expect(await s.peekAuthCode('ac')).toBeUndefined();
   });
 
-  it('stores the latest wiki token by sub', async () => {
+  it('stores wiki tokens keyed by (sub, wiki)', async () => {
     const s = new InMemoryTokenStore();
-    await s.saveWikiToken({ sub: 'u1', username: 'Alice', accessToken: 'a1', refreshToken: 'r1', expiresAt: 10 });
-    await s.saveWikiToken({ sub: 'u1', username: 'Alice', accessToken: 'a2', refreshToken: 'r2', expiresAt: 20 });
-    const rec = await s.getWikiToken('u1');
-    expect(rec?.accessToken).toBe('a2');
-    expect(rec?.expiresAt).toBe(20);
+    await s.saveWikiToken({ sub: 'u1', wiki: 'Docs', username: 'Alice', accessToken: 'a1', refreshToken: 'r1', expiresAt: 10 });
+    await s.saveWikiToken({ sub: 'u1', wiki: 'Docs', username: 'Alice', accessToken: 'a2', refreshToken: 'r2', expiresAt: 20 });
+    await s.saveWikiToken({ sub: 'u1', wiki: 'Ops', username: 'Alice', accessToken: 'b1', refreshToken: 'rb', expiresAt: 30 });
+    expect((await s.getWikiToken('u1', 'Docs'))?.accessToken).toBe('a2');
+    expect((await s.getWikiToken('u1', 'Ops'))?.accessToken).toBe('b1');
+    expect(await s.getWikiToken('u1', 'Other')).toBeUndefined();
   });
 
   it('takeRefresh is single-use', async () => {

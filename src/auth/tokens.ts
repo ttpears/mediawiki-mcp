@@ -39,4 +39,24 @@ export class BrokerTokens {
       extra: { sub: payload.sub },
     };
   }
+
+  /**
+   * Short-lived ticket binding a user (`sub`) to a single `wiki`, used to start
+   * lazy per-wiki consent. Distinct audience so it can never be used as an access
+   * token (or vice versa).
+   */
+  async signWikiTicket(sub: string, wiki: string, ttlSeconds = 600): Promise<string> {
+    return new SignJWT({ wiki })
+      .setProtectedHeader({ alg: 'HS256' })
+      .setSubject(sub)
+      .setAudience(`${this.audience}#wiki-ticket`)
+      .setIssuedAt()
+      .setExpirationTime(`${ttlSeconds}s`)
+      .sign(this.key);
+  }
+
+  async verifyWikiTicket(token: string): Promise<{ sub: string; wiki: string }> {
+    const { payload } = await jwtVerify(token, this.key, { audience: `${this.audience}#wiki-ticket` });
+    return { sub: payload.sub as string, wiki: payload.wiki as string };
+  }
 }
