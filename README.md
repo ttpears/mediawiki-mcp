@@ -207,8 +207,9 @@ and acts on the wiki **as themselves** — their own wiki permissions are the
 ceiling. The server is an OAuth 2.1 broker: it presents standard
 authorization-server metadata and Dynamic Client Registration to Claude, runs the
 upstream OAuth flow against the wiki, stores each user's wiki tokens (encrypted)
-in Postgres, and issues its own audience-bound access tokens to Claude. The
-stdio and LibreChat header paths are unaffected.
+in **Redis** (keys namespaced by the connector's host, so one shared Redis serves
+several connectors), and issues its own audience-bound access tokens to Claude.
+The stdio and LibreChat header paths are unaffected.
 
 This mode is **single-wiki**: it serves the one wiki you register the consumer on
 (`MEDIAWIKI_OAUTH_WIKI`). Multi-wiki fan-out remains available on the
@@ -218,7 +219,7 @@ bot-password paths.
 
 - Install/enable [Extension:OAuth](https://www.mediawiki.org/wiki/Extension:OAuth)
   (OAuth 2.0; MediaWiki 1.35+).
-- Register a **confidential** OAuth 2.0 consumer at
+- Register a **public PKCE** OAuth 2.0 consumer at
   `Special:OAuthConsumerRegistration/propose/oauth2`:
   - Callback URL: `https://<your-public-url>/callback`
   - Grant it a **broad** set of grants (e.g. basic, high-volume editing, page
@@ -226,7 +227,9 @@ bot-password paths.
     are the limit.
   - A consumer that acts on behalf of other users must be **approved** by an
     OAuth admin (`mwoauthmanageconsumer`).
-- Note the issued client id and secret.
+- Note the issued client id. No secret is needed for a public PKCE consumer
+  (set `MEDIAWIKI_OAUTH_CLIENT_SECRET` only if you registered a confidential
+  one — required for token refresh on MediaWiki **below 1.46**).
 
 **2. Configure the connector environment**
 
@@ -234,17 +237,22 @@ bot-password paths.
 MEDIAWIKI_MCP_AUTH=oauth
 MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com   # public HTTPS base URL
 MEDIAWIKI_OAUTH_WIKI=Main                               # registered wiki name to serve
-MEDIAWIKI_OAUTH_CLIENT_ID=<consumer client id>
-MEDIAWIKI_OAUTH_CLIENT_SECRET=<consumer client secret>
-DATABASE_URL=postgres://user:pass@host:5432/mediawiki_mcp
+MEDIAWIKI_OAUTH_CLIENT_ID=<consumer application id>
+# MEDIAWIKI_OAUTH_CLIENT_SECRET=<only for a confidential consumer>
+REDIS_URL=redis://:<password>@redis:6379                # shared broker state
 MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>  # openssl rand -base64 32
 MEDIAWIKI_MCP_JWT_SECRET=<random secret>
 MEDIAWIKI_MCP_HOST=0.0.0.0
+MEDIAWIKI_MCP_TRUST_PROXY=1                             # when running behind a reverse proxy
+# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com      # optional Host-header allowlist
 # plus the usual MEDIAWIKI_WIKIS / per-wiki entry for MEDIAWIKI_OAUTH_WIKI
 ```
 
 Terminate TLS at your reverse proxy and forward to the server; the server must be
-reachable at `MEDIAWIKI_MCP_PUBLIC_URL`. Start with `npm run start:http`.
+reachable at `MEDIAWIKI_MCP_PUBLIC_URL`. Run it from the published container image
+`ghcr.io/ttpears/mediawiki-mcp` (the `npm run start:http` entrypoint), or locally
+with `npm run start:http`. Set `MEDIAWIKI_MCP_TRUST_PROXY=1` behind a proxy so the
+OAuth rate limiter sees the real client IP.
 
 **3. Add the connector in claude.ai**
 
