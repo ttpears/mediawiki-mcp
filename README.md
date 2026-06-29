@@ -201,76 +201,62 @@ mcpServers:
 
 ### Use as a Claude.ai Connector (OAuth)
 
-The HTTP transport can run as a public, OAuth-authenticated remote connector for
-claude.ai. In this mode each user logs in through your wiki's **MediaWiki OAuth**
-and acts on the wiki **as themselves** — their own wiki permissions are the
-ceiling. The server is an OAuth 2.1 broker: it presents standard
-authorization-server metadata and Dynamic Client Registration to Claude, runs the
-upstream OAuth flow against the wiki, stores each user's wiki tokens (encrypted)
-in **Redis** (keys namespaced by the connector's host, so one shared Redis serves
-several connectors), and issues its own audience-bound access tokens to Claude.
-The stdio and LibreChat header paths are unaffected.
+The HTTP transport can run as a public remote connector for claude.ai,
+authenticated with **Microsoft Entra (OIDC)** — no MediaWiki extensions required.
+The server is an OAuth 2.1 broker: it presents authorization-server metadata and
+Dynamic Client Registration to Claude, runs the Entra sign-in flow, and issues its
+own audience-bound access tokens. **Entra decides who can connect**; wiki reads and
+edits run on the existing **per-wiki bot accounts** (`MEDIAWIKI_USERNAME_<WIKI>` /
+`MEDIAWIKI_PASSWORD_<WIKI>`), attributed to the Entra user in edit summaries. Only
+broker session state lives in **Redis** (namespaced by host); no wiki credentials
+or Entra tokens are stored. The stdio and LibreChat header paths are unaffected.
 
-This mode covers a **wiki farm**: one connector serves all the wikis listed in
-`MEDIAWIKI_OAUTH_WIKIS`, keeping cross-wiki fan-out. Because each MediaWiki is its
-own OAuth provider, each wiki has its own consumer and its own per-user consent.
-At setup the user logs into the **primary** wiki; the first time a tool touches
-another wiki, the result includes an "authorize `<wiki>`" link to consent to that
-wiki (one click), after which it's stored and reused. (Farm wikis are assumed
-LDAP-backed, so the username is consistent across them — the broker enforces that
-match when storing each wiki's token.)
+The connector serves the whole farm in `MEDIAWIKI_WIKIS` (cross-wiki fan-out). Any
+tenant member can **read**; **write** tools (create/update/delete/upload) are gated
+by an Entra **app role** (`OAUTH_WRITE_ROLE`, default `Writer`) — members without
+it get read-only.
 
-**1. Enable the OAuth extension and register a consumer on each wiki**
+**1. Register / reuse an Entra app**
 
-- Install/enable [Extension:OAuth](https://www.mediawiki.org/wiki/Extension:OAuth)
-  (OAuth 2.0; MediaWiki 1.35+, 1.46+ recommended for secret-less refresh).
-- On **each** farm wiki, register a **public PKCE** OAuth 2.0 consumer at
-  `Special:OAuthConsumerRegistration/propose/oauth2`:
-  - Callback URL: `https://<your-public-url>/callback`
-  - Grant it a **broad** set of grants (basic, high-volume editing, page
-    management, upload) so each user's own rights — not the consumer's grants —
-    are the limit.
-  - A consumer that acts on behalf of other users must be **approved** by an
-    OAuth admin (`mwoauthmanageconsumer`).
-- Note each wiki's issued client id. No secret is needed for a public PKCE
-  consumer (set `MEDIAWIKI_OAUTH_CLIENT_SECRET_<WIKI>` only for a confidential
-  one — required for token refresh on MediaWiki **below 1.46**).
+- Reuse an existing Entra app (e.g. the bookstack connector's) or register a new one.
+- Add the redirect URI `https://<your-public-url>/callback`.
+- Define an app role for write access (e.g. `Writer`) and assign it to the users
+  who should be able to edit. (Reading needs no role.)
 
 **2. Configure the connector environment**
 
 ```bash
 MEDIAWIKI_MCP_AUTH=oauth
 MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com    # public HTTPS base URL
-# the farm in the registry (Name:URL pairs):
+# the farm to serve, and per-wiki bot credentials for the actual API calls:
 MEDIAWIKI_WIKIS=itops:https://itops.wiki.example.com,tech:https://tech.wiki.example.com
-# which of those have OAuth consumers, and which is the login wiki:
-MEDIAWIKI_OAUTH_WIKIS=itops,tech
-MEDIAWIKI_OAUTH_PRIMARY_WIKI=itops
-# per-wiki consumer application ids (uppercased wiki name):
-MEDIAWIKI_OAUTH_CLIENT_ID_ITOPS=<itops application id>
-MEDIAWIKI_OAUTH_CLIENT_ID_TECH=<tech application id>
-# MEDIAWIKI_OAUTH_CLIENT_SECRET_ITOPS=<only for a confidential consumer>
+MEDIAWIKI_DEFAULT_WIKI=itops
+MEDIAWIKI_USERNAME_ITOPS=Bot@mcp
+MEDIAWIKI_PASSWORD_ITOPS=<bot password>
+MEDIAWIKI_USERNAME_TECH=Bot@mcp
+MEDIAWIKI_PASSWORD_TECH=<bot password>
+# Entra app (OIDC):
+OAUTH_TENANT_ID=<entra tenant id>
+OAUTH_CLIENT_ID=<entra app client id>
+OAUTH_CLIENT_SECRET=<entra app client secret>
+OAUTH_WRITE_ROLE=Writer                                  # app role granting write
+# broker infra:
 REDIS_URL=redis://:<password>@redis:6379                 # shared broker state
-MEDIAWIKI_MCP_ENCRYPTION_KEY=<base64 of 32 random bytes>   # openssl rand -base64 32
 MEDIAWIKI_MCP_JWT_SECRET=<random secret>
 MEDIAWIKI_MCP_HOST=0.0.0.0
 MEDIAWIKI_MCP_TRUST_PROXY=1                               # behind a reverse proxy
 # MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com        # optional Host allowlist
 ```
 
-Terminate TLS at your reverse proxy and forward to the server; the server must be
-reachable at `MEDIAWIKI_MCP_PUBLIC_URL`. Run it from the published container image
-`ghcr.io/ttpears/mediawiki-mcp` (the `npm run start:http` entrypoint), or locally
-with `npm run start:http`. Set `MEDIAWIKI_MCP_TRUST_PROXY=1` behind a proxy so the
-OAuth rate limiter sees the real client IP.
+Terminate TLS at your reverse proxy and forward to the server; it must be reachable
+at `MEDIAWIKI_MCP_PUBLIC_URL`. Run the published image `ghcr.io/ttpears/mediawiki-mcp`
+(the `npm run start:http` entrypoint) or locally with `npm run start:http`.
 
 **3. Add the connector in claude.ai**
 
-Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude
-discovers the auth server via `/.well-known/oauth-protected-resource/mcp`,
-registers itself via DCR, and walks the user through login on the primary wiki.
-Additional farm wikis are authorized on first use via the link surfaced in the
-tool result.
+Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude discovers
+the auth server via `/.well-known/oauth-protected-resource/mcp`, registers itself
+via DCR, and signs the user in through Entra. One sign-in covers the whole farm.
 
 ## Tools
 
