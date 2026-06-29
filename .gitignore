@@ -12,5 +12,10 @@ yarn-error.log*
 *.swo
 *~
 .worktrees/
+
+# MCPB build artifacts
+dist-mcpb/
+*.mcpb
+
 docs/superpowers/
 docs/plans/

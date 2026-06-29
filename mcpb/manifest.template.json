@@ -1,0 +1,68 @@
+{
+  "manifest_version": "0.3",
+  "name": "mediawiki-mcp",
+  "display_name": "MediaWiki",
+  "version": "__VERSION__",
+  "description": "MediaWiki MCP server — search, read, and edit wiki pages over the REST and Action APIs, with optional multi-wiki support.",
+  "author": {
+    "name": "Tim Pearson",
+    "url": "https://github.com/ttpears/mediawiki-mcp"
+  },
+  "homepage": "https://github.com/ttpears/mediawiki-mcp",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ttpears/mediawiki-mcp"
+  },
+  "license": "MIT",
+  "keywords": ["mcp", "mediawiki", "wiki"],
+  "server": {
+    "type": "node",
+    "entry_point": "node_modules/mediawiki-mcp/dist/index.js",
+    "mcp_config": {
+      "command": "node",
+      "args": [
+        "${__dirname}/node_modules/mediawiki-mcp/dist/index.js"
+      ],
+      "env": {
+        "MEDIAWIKI_BASE_URL": "${user_config.base_url}",
+        "MEDIAWIKI_USERNAME": "${user_config.username}",
+        "MEDIAWIKI_PASSWORD": "${user_config.password}",
+        "MEDIAWIKI_WIKIS": "${user_config.wikis}",
+        "MEDIAWIKI_DEFAULT_WIKI": "${user_config.default_wiki}"
+      }
+    }
+  },
+  "user_config": {
+    "base_url": {
+      "type": "string",
+      "title": "Wiki API Base URL",
+      "description": "Base URL of your wiki (e.g. https://wiki.example.com). Used for the single-wiki setup. Leave blank only if you fill in the advanced Wikis list below instead.",
+      "required": false
+    },
+    "username": {
+      "type": "string",
+      "title": "Bot Username",
+      "description": "Bot password username in User@BotName form (create one at Special:BotPasswords). Leave blank for anonymous read-only access. Applies to the single-wiki Base URL above.",
+      "required": false
+    },
+    "password": {
+      "type": "string",
+      "title": "Bot Password",
+      "description": "The bot password generated at Special:BotPasswords. Required for editing. Stored in your OS keychain.",
+      "sensitive": true,
+      "required": false
+    },
+    "wikis": {
+      "type": "string",
+      "title": "Wikis (advanced, multi-wiki)",
+      "description": "Optional comma-separated Name:URL list for multiple wikis, e.g. Main:https://wiki.example.com,Dev:https://dev.example.com. If set, this takes precedence over the single Base URL above. Note: per-wiki bot credentials cannot be supplied through this one-click bundle — multi-wiki here is anonymous/read-only unless credentials are provided via environment variables (use the Docker/env setup for authenticated multi-wiki).",
+      "required": false
+    },
+    "default_wiki": {
+      "type": "string",
+      "title": "Default Wiki Name (advanced)",
+      "description": "When using the multi-wiki list above, the name of the wiki to use when a tool call doesn't specify one (e.g. Main).",
+      "required": false
+    }
+  }
+}
