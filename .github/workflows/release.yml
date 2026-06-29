@@ -18,15 +18,20 @@ jobs:
         with:
           node-version: 20
           cache: npm
-          registry-url: "https://registry.npmjs.org"
 
       - run: npm ci
       - run: npm run build
 
+      # Trusted publishing (OIDC) requires npm >= 11.5.1; Node 20 ships with npm 10.x.
+      # Without this, the OIDC token exchange never happens and the publish fails
+      # with a misleading "404 Not Found - PUT .../mediawiki-mcp".
+      - run: npm install -g npm@latest
+
       - name: Publish to npm with provenance
         # Uses npm trusted publishing via GitHub OIDC (id-token: write).
         # No NPM_TOKEN needed — the npm CLI exchanges the Actions OIDC token
-        # for a short-lived registry token at publish time.
+        # for a short-lived registry token at publish time. Do not set
+        # NODE_AUTH_TOKEN / registry-url — an empty token breaks the OIDC publish.
         run: npm publish --access public --provenance
 
       - name: Build MCPB bundle
