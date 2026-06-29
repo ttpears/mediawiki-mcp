@@ -62,6 +62,22 @@ claude mcp add mediawiki \
   -- npx -y mediawiki-mcp
 ```
 
+### Claude Desktop (MCPB bundle)
+
+Each release attaches a one-click `mediawiki-mcp-<version>.mcpb` bundle. Download it
+from the [latest release](https://github.com/ttpears/mediawiki-mcp/releases/latest)
+and open it with Claude Desktop (Settings → Extensions → install from file, or
+double-click). Claude Desktop prompts for the configuration:
+
+- **Wiki API Base URL** — e.g. `https://wiki.example.com` (single-wiki setup).
+- **Bot Username** / **Bot Password** — optional; from `Special:BotPasswords`. Leave
+  blank for anonymous read-only access. Credentials are stored in your OS keychain.
+- **Wikis** / **Default Wiki Name** — optional advanced fields for multi-wiki use.
+  Note: per-wiki credentials can't be entered through the bundle UI, so authenticated
+  multi-wiki still needs the Docker/env setup below.
+
+To build the bundle locally: `npm run build:mcpb`.
+
 ### Docker Installation
 
 ```bash
