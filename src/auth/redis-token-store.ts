@@ -10,15 +10,17 @@ export interface RedisLike {
 
 const TEN_MINUTES = 600;
 const THIRTY_ONE_DAYS = 31 * 24 * 60 * 60;
+const NINETY_DAYS = 90 * 24 * 60 * 60;
 
 /**
  * Redis-backed broker state for the shared swarm Redis. Keys are namespaced by the
  * issuer host so one Redis serves every connector without collision. Pending auth
- * and authorization codes are short-lived; refresh tokens live ~a month. No wiki
- * tokens or other secrets are stored (Entra tokens are not retained).
+ * and authorization codes are short-lived; refresh tokens live ~a month; DCR
+ * client registrations expire after 90 days. No upstream (Entra) tokens or wiki
+ * credentials are ever stored — only broker session state, all with TTLs.
  */
 export class RedisTokenStore implements TokenStore {
-  /** @param keyPrefix issuer host, e.g. "mediawiki-mcp.teamgleim.com" */
+  /** @param keyPrefix issuer host, e.g. "mediawiki-mcp.example.com" */
   constructor(
     private readonly redis: RedisLike,
     private readonly keyPrefix: string
@@ -33,7 +35,8 @@ export class RedisTokenStore implements TokenStore {
     return raw ? (JSON.parse(raw) as OAuthClientInformationFull) : undefined;
   }
   async saveClient(client: OAuthClientInformationFull): Promise<void> {
-    await this.redis.set(this.key('client', client.client_id), JSON.stringify(client));
+    // TTL so DCR registrations don't accumulate forever (Claude re-registers).
+    await this.redis.set(this.key('client', client.client_id), JSON.stringify(client), { EX: NINETY_DAYS });
   }
 
   async savePendingAuth(p: PendingAuth): Promise<void> {

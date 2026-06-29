@@ -22,8 +22,9 @@ export interface OAuthConfig {
   clientSecret: string;
   /** Entra app-role name that grants write access (e.g. "Writer"). Read is open to any member. */
   writeRole: string;
-  /** Redis connection URL for shared broker state (redis://[:pass@]host:port). */
-  redisUrl: string;
+  /** Redis URL for shared broker state (redis://[:pass@]host:port). Omit to fall
+   *  back to in-memory state (single instance only — like the sibling connectors). */
+  redisUrl?: string;
   /** HS256 signing secret for broker-issued access tokens. */
   jwtSecret: string;
   /** Trust X-Forwarded-* (set when running behind traefik) so rate limiting keys on the real IP. */
@@ -56,7 +57,7 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
   const clientSecret = required(env, 'OAUTH_CLIENT_SECRET');
   const writeRole = env.OAUTH_WRITE_ROLE?.trim() || 'Writer';
 
-  const redisUrl = required(env, 'REDIS_URL');
+  const redisUrl = env.REDIS_URL?.trim() || undefined;
   const jwtSecret = required(env, 'MEDIAWIKI_MCP_JWT_SECRET');
 
   const allowedHostsRaw = env.MEDIAWIKI_MCP_ALLOWED_HOSTS?.trim();

@@ -6,7 +6,10 @@ const READ_TOOLS = ['get-page', 'get-file', 'search-page', 'find-page'];
 
 function registeredToolNames(context: SessionContext): Set<string> {
   const names = new Set<string>();
-  const server = { tool: (name: string) => { names.add(name); } } as never;
+  const server = {
+    tool: (name: string) => { names.add(name); },
+    registerPrompt: () => {},
+  } as never;
   registerAllTools(server, context);
   return names;
 }

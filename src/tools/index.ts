@@ -8,6 +8,7 @@ import { registerCategoryTools } from './category-tools.js';
 import { registerLinkTools } from './link-tools.js';
 import { registerFileTools } from './file-tools.js';
 import { registerActivityTools } from './activity-tools.js';
+import { registerPrompts } from './prompts.js';
 
 export interface SessionContext {
   orchestrator: WikiOrchestrator;
@@ -46,4 +47,5 @@ export function registerAllTools(server: McpServer, context: SessionContext): vo
   registerLinkTools(server, context.orchestrator);
   registerFileTools(server, context);
   registerActivityTools(server, context.orchestrator);
+  registerPrompts(server, context);
 }

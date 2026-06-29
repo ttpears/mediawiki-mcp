@@ -61,4 +61,11 @@ describe('RedisTokenStore', () => {
     await store.savePendingAuth({ brokerState: 's', clientId: 'c1', clientRedirectUri: 'u', clientCodeChallenge: 'ch', upstreamCodeVerifier: 'v', createdAt: 1 });
     expect(ttls.get('mediawiki-mcp.example.com:pending:s')).toBe(600);
   });
+
+  it('expires DCR client registrations (90-day TTL, no unbounded growth)', async () => {
+    const { redis, ttls } = fakeRedis();
+    const store = new RedisTokenStore(redis, PREFIX);
+    await store.saveClient(client);
+    expect(ttls.get('mediawiki-mcp.example.com:client:c1')).toBe(90 * 24 * 60 * 60);
+  });
 });
