@@ -158,7 +158,7 @@ Endpoint: `http://localhost:8009/mcp`
 
 #### 1. Add wiki credentials to the LibreChat `.env`
 
-Add the `MEDIAWIKI_*` variables to your LibreChat `.env` file (e.g. `/srv/docker/LibreChat/.env`):
+Add the `MEDIAWIKI_*` variables to your LibreChat host's `.env` file:
 
 ```bash
 # MediaWiki MCP
@@ -175,7 +175,7 @@ MEDIAWIKI_PASSWORD_DEV=your-bot-password-here
 ```yaml
 services:
   mediawiki-mcp:
-    build: /srv/docker/mediawiki-mcp
+    build: ./mediawiki-mcp
     container_name: mediawiki-mcp
     env_file:
       - .env

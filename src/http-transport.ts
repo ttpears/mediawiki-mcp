@@ -224,12 +224,22 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     try {
       if (isOAuthMode(env)) {
         const config = loadOAuthConfig(env);
-        const { createClient } = await import('redis');
-        const redis = createClient({ url: config.redisUrl });
-        redis.on('error', (err) => console.error('Redis error:', err));
-        await redis.connect();
-        const { RedisTokenStore } = await import('./auth/redis-token-store.js');
-        const store = new RedisTokenStore(redis, config.issuerHost);
+        let store: TokenStore;
+        if (config.redisUrl) {
+          const { createClient } = await import('redis');
+          const redis = createClient({ url: config.redisUrl });
+          redis.on('error', (err) => console.error('Redis error:', err));
+          await redis.connect();
+          const { RedisTokenStore } = await import('./auth/redis-token-store.js');
+          store = new RedisTokenStore(redis, config.issuerHost);
+        } else {
+          console.warn(
+            'REDIS_URL not set — using in-memory broker state. Single instance only; ' +
+              'sessions are lost on restart and not shared across replicas. Set REDIS_URL for hosted deployments.'
+          );
+          const { InMemoryTokenStore } = await import('./auth/token-store.js');
+          store = new InMemoryTokenStore();
+        }
         const entra = new EntraOIDCClient(
           config.tenantId,
           config.clientId,

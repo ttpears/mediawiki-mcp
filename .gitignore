@@ -12,3 +12,5 @@ yarn-error.log*
 *.swo
 *~
 .worktrees/
+docs/superpowers/
+docs/plans/

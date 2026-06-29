@@ -48,6 +48,13 @@ describe('loadOAuthConfig', () => {
     expect(cfg.allowedHosts).toEqual(['mcp.example.com', 'localhost']);
   });
 
+  it('treats REDIS_URL as optional (in-memory fallback)', () => {
+    const env = validEnv();
+    delete env.REDIS_URL;
+    const cfg = loadOAuthConfig(env);
+    expect(cfg.redisUrl).toBeUndefined();
+  });
+
   it('throws naming a missing required variable', () => {
     const env = validEnv();
     delete env.OAUTH_CLIENT_ID;
