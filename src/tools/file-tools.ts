@@ -97,6 +97,10 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
     }
   );
 
+  // Read-only sessions don't get the upload (write) tools registered. get-file
+  // above is the only read tool here.
+  if (!isWriteAllowed(context)) return;
+
   server.tool(
     'upload-file',
     'Upload a file to the wiki from base64-encoded data. Provide the file content as a base64 string.',

@@ -85,6 +85,10 @@ export function registerPageTools(server: McpServer, context: SessionContext): v
     }
   );
 
+  // Read-only sessions (OAuth user without the Entra write role) don't get the
+  // write tools registered at all. get-page above is the only read tool here.
+  if (!isWriteAllowed(context)) return;
+
   server.tool(
     'create-page',
     'Create a new wiki page with wikitext content. The page must not already exist — use update-page to modify existing pages.',

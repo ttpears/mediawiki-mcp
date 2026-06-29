@@ -1,5 +1,15 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import { isWriteAllowed, registerAllTools, type SessionContext } from '../../src/tools/index.js';
+
+const WRITE_TOOLS = ['create-page', 'update-page', 'delete-page', 'undelete-page', 'upload-file', 'upload-file-from-url'];
+const READ_TOOLS = ['get-page', 'get-file', 'search-page', 'find-page'];
+
+function registeredToolNames(context: SessionContext): Set<string> {
+  const names = new Set<string>();
+  const server = { tool: (name: string) => { names.add(name); } } as never;
+  registerAllTools(server, context);
+  return names;
+}
 
 describe('isWriteAllowed', () => {
   it('allows write unless explicitly disabled', () => {
@@ -9,24 +19,20 @@ describe('isWriteAllowed', () => {
   });
 });
 
-describe('write tool gating', () => {
-  function captureTools(context: SessionContext) {
-    const handlers = new Map<string, (args: unknown) => Promise<{ isError?: boolean; content: { text: string }[] }>>();
-    const server = {
-      tool: (name: string, _desc: string, _schema: unknown, handler: (args: unknown) => Promise<never>) => {
-        handlers.set(name, handler as never);
-      },
-    } as never;
-    registerAllTools(server, context);
-    return handlers;
-  }
+describe('conditional write-tool registration', () => {
+  it('omits write tools for read-only sessions (canWrite=false), keeps read tools', () => {
+    const names = registeredToolNames({ orchestrator: {} as never, canWrite: false });
+    for (const w of WRITE_TOOLS) expect(names.has(w), `should NOT register ${w}`).toBe(false);
+    for (const r of READ_TOOLS) expect(names.has(r), `should register ${r}`).toBe(true);
+  });
 
-  it('create-page refuses when the user lacks write access', async () => {
-    const orchestrator = { createPage: vi.fn() } as never;
-    const handlers = captureTools({ orchestrator, canWrite: false });
-    const res = await handlers.get('create-page')!({ title: 'T', content: 'c', summary: 's' });
-    expect(res.isError).toBe(true);
-    expect(res.content[0].text).toMatch(/Write access denied/);
-    expect((orchestrator as { createPage: ReturnType<typeof vi.fn> }).createPage).not.toHaveBeenCalled();
+  it('registers write tools for writers (canWrite=true)', () => {
+    const names = registeredToolNames({ orchestrator: {} as never, canWrite: true });
+    for (const w of WRITE_TOOLS) expect(names.has(w), `should register ${w}`).toBe(true);
+  });
+
+  it('registers write tools when canWrite is undefined (stdio / LibreChat)', () => {
+    const names = registeredToolNames({ orchestrator: {} as never });
+    for (const w of WRITE_TOOLS) expect(names.has(w)).toBe(true);
   });
 });
