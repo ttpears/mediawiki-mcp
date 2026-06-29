@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import axios from 'axios';
 import { RestClient } from '../../src/clients/rest-client.js';
 import { MediaWikiApiError } from '../../src/types.js';
+import { VERSION } from '../../src/version.js';
 
 vi.mock('axios');
 
@@ -33,7 +34,7 @@ describe('RestClient', () => {
         baseURL: 'https://wiki.example.com/rest.php/v1',
         timeout: 30000,
         headers: {
-          'User-Agent': 'MediaWiki-MCP/2.0.0',
+          'User-Agent': `MediaWiki-MCP/${VERSION}`,
           'Accept': 'application/json',
         },
       });

@@ -7,6 +7,7 @@ import {
   RestFileInfo,
   MediaWikiApiError,
 } from '../types.js';
+import { VERSION } from '../version.js';
 
 export class RestClient {
   private readonly client: AxiosInstance;
@@ -24,7 +25,7 @@ export class RestClient {
       baseURL: `${baseUrl.replace(/\/+$/, '')}/rest.php/v1`,
       timeout: 30000,
       headers: {
-        'User-Agent': 'MediaWiki-MCP/2.0.0',
+        'User-Agent': `MediaWiki-MCP/${VERSION}`,
         'Accept': 'application/json',
       },
     });

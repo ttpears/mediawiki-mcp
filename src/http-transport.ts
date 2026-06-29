@@ -8,6 +8,7 @@ import { requireBearerAuth } from '@modelcontextprotocol/sdk/server/auth/middlew
 import { WikiRegistry } from './wiki-registry.js';
 import { WikiOrchestrator } from './wiki-orchestrator.js';
 import { registerAllTools, SessionContext } from './tools/index.js';
+import { VERSION } from './version.js';
 import { OAuthConfig, isOAuthMode, loadOAuthConfig } from './auth/config.js';
 import { TokenStore } from './auth/token-store.js';
 import { EntraOIDCClient } from './auth/entra-oidc.js';
@@ -84,7 +85,7 @@ export async function createHTTPServer(
   }
 
   app.get('/health', (_req, res) => {
-    res.json({ status: 'ok', service: 'mediawiki-mcp', version: '2.0.0', auth: oauth ? 'oauth' : 'none' });
+    res.json({ status: 'ok', service: 'mediawiki-mcp', version: VERSION, auth: oauth ? 'oauth' : 'none' });
   });
 
   /** Build the per-session SessionContext (per-user orchestrator in OAuth mode). */
@@ -167,7 +168,7 @@ export async function createHTTPServer(
 
       const server = new McpServer({
         name: 'mediawiki-mcp',
-        version: '2.0.0',
+        version: VERSION,
       });
 
       registerAllTools(server, context);
@@ -208,7 +209,7 @@ export async function createHTTPServer(
 
   return new Promise<Server>((resolve) => {
     const server = app.listen(port, host, () => {
-      console.log(`MediaWiki MCP server v2.0.0 on http://${host}:${port}/mcp (auth: ${oauth ? 'oauth' : 'none'})`);
+      console.log(`MediaWiki MCP server v${VERSION} on http://${host}:${port}/mcp (auth: ${oauth ? 'oauth' : 'none'})`);
       resolve(server);
     });
   });

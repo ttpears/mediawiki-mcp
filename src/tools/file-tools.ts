@@ -4,6 +4,7 @@ import axios from 'axios';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
 import { SessionContext, isWriteAllowed, WRITE_FORBIDDEN_RESULT } from './index.js';
 import { attributeSummary } from './page-tools.js';
+import { VERSION } from '../version.js';
 
 const IMAGE_MEDIATYPES = new Set(['BITMAP', 'DRAWING']);
 const MIME_MAP: Record<string, string> = {
@@ -79,7 +80,7 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
           const resp = await axios.get(imgUrl, {
             responseType: 'arraybuffer',
             timeout: 15000,
-            headers: { 'User-Agent': 'MediaWiki-MCP/2.0.0' },
+            headers: { 'User-Agent': `MediaWiki-MCP/${VERSION}` },
           });
           const base64 = Buffer.from(resp.data).toString('base64');
           const mimeType = mimeFromUrl(imgUrl, file.original.mediatype);

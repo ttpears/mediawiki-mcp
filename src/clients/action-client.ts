@@ -1,5 +1,6 @@
 import axios, { AxiosInstance, AxiosError } from 'axios';
 import FormData from 'form-data';
+import { VERSION } from '../version.js';
 import {
   ActionCategory,
   ActionCategoryMember,
@@ -31,7 +32,7 @@ export class ActionClient {
       baseURL: `${baseUrl.replace(/\/+$/, '')}/api.php`,
       timeout: 30000,
       headers: {
-        'User-Agent': 'MediaWiki-MCP/2.0.0',
+        'User-Agent': `MediaWiki-MCP/${VERSION}`,
         'Accept': 'application/json',
       },
     });

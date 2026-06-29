@@ -3,11 +3,12 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { WikiRegistry } from './wiki-registry.js';
 import { WikiOrchestrator } from './wiki-orchestrator.js';
 import { registerAllTools } from './tools/index.js';
+import { VERSION } from './version.js';
 
 export async function createStdioServer(registry: WikiRegistry): Promise<void> {
   const server = new McpServer({
     name: 'mediawiki-mcp',
-    version: '2.0.0'
+    version: VERSION
   });
 
   const orchestrator = new WikiOrchestrator(registry);
@@ -17,5 +18,5 @@ export async function createStdioServer(registry: WikiRegistry): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
 
-  console.error('MediaWiki MCP server v2.0.0 running on stdio');
+  console.error(`MediaWiki MCP server v${VERSION} running on stdio`);
 }
