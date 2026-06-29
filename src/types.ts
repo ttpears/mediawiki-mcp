@@ -140,6 +140,18 @@ export interface PaginatedResult<T> {
   continueFrom?: string;
 }
 
+// Unified page-finding result
+export type FoundPageMatchType = 'exact' | 'redirect' | 'prefix' | 'fulltext';
+
+export interface FoundPage {
+  wiki: string;
+  title: string;
+  pageid: number;
+  matchType: FoundPageMatchType;
+  excerpt?: string;
+  redirectedFrom?: string;
+}
+
 // Multi-wiki result wrapper
 export interface WikiLabeledResult<T> {
   wiki: string;

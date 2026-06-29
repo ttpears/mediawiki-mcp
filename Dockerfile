@@ -28,7 +28,9 @@ USER nodejs
 
 EXPOSE 8009
 
+# 127.0.0.1 (not localhost): the server binds IPv4 0.0.0.0, but localhost can
+# resolve to ::1 first in-container → connection refused. -qO- is busybox-safe.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=10s --retries=3 \
-  CMD wget --quiet --tries=1 --spider http://localhost:8009/health || exit 1
+  CMD wget -qO- http://127.0.0.1:8009/health || exit 1
 
 CMD ["node", "dist/http-transport.js"]

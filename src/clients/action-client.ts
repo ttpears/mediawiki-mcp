@@ -20,6 +20,7 @@ export class ActionClient {
   private loggedIn = false;
   private readonly username?: string;
   private readonly password?: string;
+  private bearerTokenProvider?: () => Promise<string>;
 
   constructor(wikiName: string, baseUrl: string, username?: string, password?: string) {
     this.wikiName = wikiName;
@@ -56,9 +57,28 @@ export class ActionClient {
       }
       return config;
     });
+
+    // OAuth bearer mode: act as the authenticated user via Authorization header
+    this.client.interceptors.request.use(async (config) => {
+      if (this.bearerTokenProvider) {
+        config.headers['Authorization'] = `Bearer ${await this.bearerTokenProvider()}`;
+      }
+      return config;
+    });
+  }
+
+  /**
+   * Switch this client into OAuth bearer mode: every request carries
+   * `Authorization: Bearer <token>` from the provider, and bot-password login is
+   * skipped. The provider returns a currently-valid wiki access token (refreshed
+   * as needed by the caller).
+   */
+  setBearerTokenProvider(provider: () => Promise<string>): void {
+    this.bearerTokenProvider = provider;
   }
 
   async login(): Promise<void> {
+    if (this.bearerTokenProvider) return; // OAuth handles auth; no bot login
     if (!this.username || !this.password) return;
     if (this.loggedIn) return;
 
@@ -393,6 +413,46 @@ export class ActionClient {
       items: response.query.backlinks,
       hasMore: !!response.continue?.blcontinue,
       continueFrom: response.continue?.blcontinue,
+    };
+  }
+
+  /**
+   * Resolve a title via the Action API, following redirects and normalization.
+   * Returns the canonical page if it exists, or null if the title is missing.
+   */
+  async resolveTitle(title: string): Promise<{
+    title: string;
+    pageid: number;
+    redirectedFrom?: string;
+  } | null> {
+    const response = await this.request<{
+      query: {
+        redirects?: Array<{ from: string; to: string }>;
+        normalized?: Array<{ from: string; to: string }>;
+        pages: Array<{ pageid?: number; ns: number; title: string; missing?: boolean }>;
+      };
+    }>('GET', {
+      action: 'query',
+      titles: title,
+      redirects: 1,
+      prop: 'info',
+    });
+
+    const page = response.query.pages?.[0];
+    if (!page || page.missing || page.pageid === undefined) {
+      return null;
+    }
+
+    // Trace back through redirects + normalization to find the user's original input
+    const redirects = response.query.redirects ?? [];
+    const normalized = response.query.normalized ?? [];
+    const firstHop = normalized[0]?.from ?? redirects[0]?.from;
+    const redirectedFrom = redirects.length > 0 ? (firstHop ?? title) : undefined;
+
+    return {
+      title: page.title,
+      pageid: page.pageid,
+      redirectedFrom,
     };
   }
 

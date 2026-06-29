@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import { applyPatch } from 'diff';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
-import { SessionContext } from './index.js';
+import { SessionContext, isWriteAllowed, WRITE_FORBIDDEN_RESULT } from './index.js';
 import { lintWikitext, formatLintWarnings } from '../wikitext-lint.js';
 
 export function attributeSummary(summary: string, user?: string): string {
@@ -85,6 +85,10 @@ export function registerPageTools(server: McpServer, context: SessionContext): v
     }
   );
 
+  // Read-only sessions (OAuth user without the Entra write role) don't get the
+  // write tools registered at all. get-page above is the only read tool here.
+  if (!isWriteAllowed(context)) return;
+
   server.tool(
     'create-page',
     'Create a new wiki page with wikitext content. The page must not already exist — use update-page to modify existing pages.',
@@ -96,6 +100,7 @@ export function registerPageTools(server: McpServer, context: SessionContext): v
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
       const result = await orchestrator.createPage(args.title, args.content, attributeSummary(args.summary, user), { wiki: args.wiki });
       return {
@@ -138,6 +143,7 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const a = args as Record<string, any>;
       const { title, content, diff, section, append, prepend, summary, wiki } = a;
       const user = resolveUser(context, a.user as string | undefined);
@@ -267,6 +273,7 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
       const { title, reason, wiki } = args;
       const attrReason = attributeSummary(reason ?? 'Deleted via MCP', user);
@@ -287,6 +294,7 @@ WIKITEXT STYLE GUIDE — when writing or updating wikitext, use modern syntax:
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const user = resolveUser(context, (args as Record<string, unknown>).user as string | undefined);
       const { title, reason, wiki } = args;
       const attrReason = attributeSummary(reason ?? 'Restored via MCP', user);

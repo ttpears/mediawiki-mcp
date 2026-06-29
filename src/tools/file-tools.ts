@@ -2,7 +2,7 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
 import axios from 'axios';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
-import { SessionContext } from './index.js';
+import { SessionContext, isWriteAllowed, WRITE_FORBIDDEN_RESULT } from './index.js';
 import { attributeSummary } from './page-tools.js';
 
 const IMAGE_MEDIATYPES = new Set(['BITMAP', 'DRAWING']);
@@ -97,6 +97,10 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
     }
   );
 
+  // Read-only sessions don't get the upload (write) tools registered. get-file
+  // above is the only read tool here.
+  if (!isWriteAllowed(context)) return;
+
   server.tool(
     'upload-file',
     'Upload a file to the wiki from base64-encoded data. Provide the file content as a base64 string.',
@@ -109,6 +113,7 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const { filename, data, description, comment, wiki } = args;
       const user = resolveUser((args as Record<string, unknown>).user as string | undefined);
       const attrComment = attributeSummary(comment ?? 'Uploaded via MCP', user);
@@ -135,6 +140,7 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
       wiki: z.string().optional().describe('Wiki name (uses default if omitted)'),
     },
     async (args) => {
+      if (!isWriteAllowed(context)) return WRITE_FORBIDDEN_RESULT;
       const { filename, url, description, comment, wiki } = args;
       const user = resolveUser((args as Record<string, unknown>).user as string | undefined);
       const attrComment = attributeSummary(comment ?? 'Uploaded via MCP', user);

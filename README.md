@@ -199,6 +199,65 @@ mcpServers:
 
 > If you have `allowedDomains` configured in LibreChat, add `mediawiki-mcp` to the list.
 
+### Use as a Claude.ai Connector (OAuth)
+
+The HTTP transport can run as a public remote connector for claude.ai,
+authenticated with **Microsoft Entra (OIDC)** — no MediaWiki extensions required.
+The server is an OAuth 2.1 broker: it presents authorization-server metadata and
+Dynamic Client Registration to Claude, runs the Entra sign-in flow, and issues its
+own audience-bound access tokens. **Entra decides who can connect**; wiki reads and
+edits run on the existing **per-wiki bot accounts** (`MEDIAWIKI_USERNAME_<WIKI>` /
+`MEDIAWIKI_PASSWORD_<WIKI>`), attributed to the Entra user in edit summaries. Only
+broker session state lives in **Redis** (namespaced by host); no wiki credentials
+or Entra tokens are stored. The stdio and LibreChat header paths are unaffected.
+
+The connector serves the whole farm in `MEDIAWIKI_WIKIS` (cross-wiki fan-out). Any
+tenant member can **read**; **write** tools (create/update/delete/upload) are gated
+by an Entra **app role** (`OAUTH_WRITE_ROLE`, default `Writer`) — members without
+it get read-only.
+
+**1. Register / reuse an Entra app**
+
+- Reuse an existing Entra app (e.g. the bookstack connector's) or register a new one.
+- Add the redirect URI `https://<your-public-url>/callback`.
+- Define an app role for write access (e.g. `Writer`) and assign it to the users
+  who should be able to edit. (Reading needs no role.)
+
+**2. Configure the connector environment**
+
+```bash
+MEDIAWIKI_MCP_AUTH=oauth
+MEDIAWIKI_MCP_PUBLIC_URL=https://wiki-mcp.example.com    # public HTTPS base URL
+# the farm to serve, and per-wiki bot credentials for the actual API calls:
+MEDIAWIKI_WIKIS=itops:https://itops.wiki.example.com,tech:https://tech.wiki.example.com
+MEDIAWIKI_DEFAULT_WIKI=itops
+MEDIAWIKI_USERNAME_ITOPS=Bot@mcp
+MEDIAWIKI_PASSWORD_ITOPS=<bot password>
+MEDIAWIKI_USERNAME_TECH=Bot@mcp
+MEDIAWIKI_PASSWORD_TECH=<bot password>
+# Entra app (OIDC):
+OAUTH_TENANT_ID=<entra tenant id>
+OAUTH_CLIENT_ID=<entra app client id>
+OAUTH_CLIENT_SECRET=<entra app client secret>
+OAUTH_WRITE_ROLE=Writer                                  # app role granting write
+# broker infra:
+REDIS_URL=redis://:<password>@redis:6379                 # shared broker state
+MEDIAWIKI_MCP_JWT_SECRET=<random secret>
+MEDIAWIKI_MCP_HOST=0.0.0.0
+MEDIAWIKI_MCP_TRUST_PROXY=1                               # behind a reverse proxy
+# MEDIAWIKI_MCP_ALLOWED_HOSTS=wiki-mcp.example.com        # optional Host allowlist
+```
+
+Terminate TLS at your reverse proxy and forward to the server; it must be reachable
+at `MEDIAWIKI_MCP_PUBLIC_URL`. Run the published image `ghcr.io/ttpears/mediawiki-mcp`
+(the `npm run start:http` entrypoint) or locally with `npm run start:http`.
+
+**3. Add the connector in claude.ai**
+
+Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude discovers
+the auth server via `/.well-known/oauth-protected-resource/mcp`, registers itself
+via DCR, and signs the user in through Entra. One sign-in covers the whole farm.
+
 ## Tools
 
 All tools that accept a `wiki` parameter will use the default wiki when omitted. Search and listing tools fan out across all registered wikis when `wiki` is not specified.

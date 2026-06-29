@@ -15,6 +15,7 @@ export class RestClient {
   private retryDelayMs = 1000;
   private cookieProvider?: () => string[];
   private csrfTokenProvider?: () => Promise<string>;
+  private bearerTokenProvider?: () => Promise<string>;
 
   constructor(wikiName: string, baseUrl: string) {
     this.wikiName = wikiName;
@@ -38,6 +39,19 @@ export class RestClient {
       }
       return config;
     });
+
+    // OAuth bearer mode: act as the authenticated user via Authorization header
+    this.client.interceptors.request.use(async (config) => {
+      if (this.bearerTokenProvider) {
+        config.headers['Authorization'] = `Bearer ${await this.bearerTokenProvider()}`;
+      }
+      return config;
+    });
+  }
+
+  /** Switch this client into OAuth bearer mode (see ActionClient.setBearerTokenProvider). */
+  setBearerTokenProvider(provider: () => Promise<string>): void {
+    this.bearerTokenProvider = provider;
   }
 
   /** Set a cookie provider so this client shares the ActionClient's session */

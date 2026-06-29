@@ -1,0 +1,101 @@
+import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
+
+/** In-flight upstream (Entra) authorization, keyed by the broker-generated state. */
+export interface PendingAuth {
+  brokerState: string;
+  clientId: string;
+  clientRedirectUri: string;
+  clientState?: string;
+  clientCodeChallenge: string;
+  upstreamCodeVerifier: string;
+  createdAt: number;
+}
+
+/** Broker authorization code issued to the MCP client, keyed by code. */
+export interface AuthCodeRecord {
+  code: string;
+  sub: string;
+  username: string;
+  canWrite: boolean;
+  clientId: string;
+  clientCodeChallenge: string;
+  createdAt: number;
+}
+
+/** Opaque broker refresh token, keyed by token. */
+export interface RefreshRecord {
+  token: string;
+  sub: string;
+  username: string;
+  canWrite: boolean;
+  clientId: string;
+}
+
+/**
+ * Persistence boundary for the OAuth broker. Implementations: InMemoryTokenStore
+ * (tests) and RedisTokenStore (production). All `take*` methods are single-use:
+ * they return the record and delete it atomically. No wiki tokens are stored —
+ * wiki actions run on the bot account; only broker session state lives here.
+ */
+export interface TokenStore {
+  // Dynamic client registration
+  getClient(clientId: string): Promise<OAuthClientInformationFull | undefined>;
+  saveClient(client: OAuthClientInformationFull): Promise<void>;
+
+  // Pending upstream auth (keyed by brokerState)
+  savePendingAuth(p: PendingAuth): Promise<void>;
+  takePendingAuth(brokerState: string): Promise<PendingAuth | undefined>;
+
+  // Broker auth codes (keyed by code)
+  saveAuthCode(c: AuthCodeRecord): Promise<void>;
+  peekAuthCode(code: string): Promise<AuthCodeRecord | undefined>;
+  takeAuthCode(code: string): Promise<AuthCodeRecord | undefined>;
+
+  // Broker refresh tokens (keyed by token)
+  saveRefresh(r: RefreshRecord): Promise<void>;
+  takeRefresh(token: string): Promise<RefreshRecord | undefined>;
+}
+
+export class InMemoryTokenStore implements TokenStore {
+  private clients = new Map<string, OAuthClientInformationFull>();
+  private pending = new Map<string, PendingAuth>();
+  private codes = new Map<string, AuthCodeRecord>();
+  private refresh = new Map<string, RefreshRecord>();
+
+  async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
+    return this.clients.get(clientId);
+  }
+  async saveClient(client: OAuthClientInformationFull): Promise<void> {
+    this.clients.set(client.client_id, client);
+  }
+
+  async savePendingAuth(p: PendingAuth): Promise<void> {
+    this.pending.set(p.brokerState, p);
+  }
+  async takePendingAuth(brokerState: string): Promise<PendingAuth | undefined> {
+    const p = this.pending.get(brokerState);
+    this.pending.delete(brokerState);
+    return p;
+  }
+
+  async saveAuthCode(c: AuthCodeRecord): Promise<void> {
+    this.codes.set(c.code, c);
+  }
+  async peekAuthCode(code: string): Promise<AuthCodeRecord | undefined> {
+    return this.codes.get(code);
+  }
+  async takeAuthCode(code: string): Promise<AuthCodeRecord | undefined> {
+    const c = this.codes.get(code);
+    this.codes.delete(code);
+    return c;
+  }
+
+  async saveRefresh(r: RefreshRecord): Promise<void> {
+    this.refresh.set(r.token, r);
+  }
+  async takeRefresh(token: string): Promise<RefreshRecord | undefined> {
+    const r = this.refresh.get(token);
+    this.refresh.delete(token);
+    return r;
+  }
+}
