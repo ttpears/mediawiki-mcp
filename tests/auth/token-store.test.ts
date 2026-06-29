@@ -25,29 +25,21 @@ describe('InMemoryTokenStore', () => {
     expect(await s.takePendingAuth('st')).toBeUndefined();
   });
 
-  it('peekAuthCode does not consume, takeAuthCode does', async () => {
+  it('peekAuthCode does not consume, takeAuthCode does; carries identity + canWrite', async () => {
     const s = new InMemoryTokenStore();
-    await s.saveAuthCode({ code: 'ac', sub: 'u1', clientId: 'c1', clientCodeChallenge: 'chal', createdAt: 1 });
-    expect((await s.peekAuthCode('ac'))?.sub).toBe('u1');
-    expect((await s.peekAuthCode('ac'))?.sub).toBe('u1'); // still there
+    await s.saveAuthCode({ code: 'ac', sub: 'u1', username: 'alice', canWrite: true, clientId: 'c1', clientCodeChallenge: 'chal', createdAt: 1 });
+    expect((await s.peekAuthCode('ac'))?.username).toBe('alice');
+    expect((await s.peekAuthCode('ac'))?.canWrite).toBe(true); // still there
     expect((await s.takeAuthCode('ac'))?.sub).toBe('u1');
     expect(await s.peekAuthCode('ac')).toBeUndefined();
   });
 
-  it('stores wiki tokens keyed by (sub, wiki)', async () => {
+  it('takeRefresh is single-use and carries identity + canWrite', async () => {
     const s = new InMemoryTokenStore();
-    await s.saveWikiToken({ sub: 'u1', wiki: 'Docs', username: 'Alice', accessToken: 'a1', refreshToken: 'r1', expiresAt: 10 });
-    await s.saveWikiToken({ sub: 'u1', wiki: 'Docs', username: 'Alice', accessToken: 'a2', refreshToken: 'r2', expiresAt: 20 });
-    await s.saveWikiToken({ sub: 'u1', wiki: 'Ops', username: 'Alice', accessToken: 'b1', refreshToken: 'rb', expiresAt: 30 });
-    expect((await s.getWikiToken('u1', 'Docs'))?.accessToken).toBe('a2');
-    expect((await s.getWikiToken('u1', 'Ops'))?.accessToken).toBe('b1');
-    expect(await s.getWikiToken('u1', 'Other')).toBeUndefined();
-  });
-
-  it('takeRefresh is single-use', async () => {
-    const s = new InMemoryTokenStore();
-    await s.saveRefresh({ token: 'rt', sub: 'u1', clientId: 'c1' });
-    expect((await s.takeRefresh('rt'))?.sub).toBe('u1');
+    await s.saveRefresh({ token: 'rt', sub: 'u1', username: 'alice', canWrite: false, clientId: 'c1' });
+    const r = await s.takeRefresh('rt');
+    expect(r?.sub).toBe('u1');
+    expect(r?.canWrite).toBe(false);
     expect(await s.takeRefresh('rt')).toBeUndefined();
   });
 });

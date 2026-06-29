@@ -6,7 +6,7 @@ import { WikiRegistry } from '../../src/wiki-registry.js';
 import { InMemoryTokenStore } from '../../src/auth/token-store.js';
 import { BrokerTokens } from '../../src/auth/tokens.js';
 import type { OAuthConfig } from '../../src/auth/config.js';
-import type { MediaWikiOAuthClient } from '../../src/auth/mediawiki-oauth.js';
+import type { EntraOIDCClient } from '../../src/auth/entra-oidc.js';
 
 const JWT_SECRET = 'secret';
 const AUD = 'https://mcp.example.com/mcp';
@@ -15,10 +15,11 @@ function makeConfig(): OAuthConfig {
   return {
     publicUrl: 'https://mcp.example.com',
     issuerHost: 'mcp.example.com',
-    wikis: [{ name: 'Docs', clientId: 'cid' }],
-    primaryWiki: 'Docs',
+    tenantId: 't',
+    clientId: 'cid',
+    clientSecret: 'csecret',
+    writeRole: 'Writer',
     redisUrl: 'redis://redis:6379',
-    encryptionKey: Buffer.alloc(32, 1),
     jwtSecret: JWT_SECRET,
     trustProxy: false,
     scopesSupported: ['mediawiki'],
@@ -34,17 +35,15 @@ function initializeBody() {
   };
 }
 
-describe('HTTP transport OAuth mode', () => {
+describe('HTTP transport OAuth mode (Entra)', () => {
   let server: Server;
-  let store: InMemoryTokenStore;
 
   beforeEach(async () => {
     const registry = new WikiRegistry();
     registry.addWiki({ name: 'Docs', baseUrl: 'https://docs.example.com' });
-    store = new InMemoryTokenStore();
-    const upstream = { refresh: vi.fn(), exchangeCode: vi.fn(), fetchIdentity: vi.fn(), buildAuthorizeUrl: vi.fn() } as unknown as MediaWikiOAuthClient;
-    const upstreams = new Map([['Docs', upstream]]);
-    server = await createHTTPServer(registry, 0, '127.0.0.1', { config: makeConfig(), store, upstreams });
+    const store = new InMemoryTokenStore();
+    const entra = { buildAuthorizeUrl: vi.fn(), exchangeCode: vi.fn() } as unknown as EntraOIDCClient;
+    server = await createHTTPServer(registry, 0, '127.0.0.1', { config: makeConfig(), store, entra });
   });
 
   afterEach(() => {
@@ -67,7 +66,10 @@ describe('HTTP transport OAuth mode', () => {
   });
 
   it('accepts /mcp initialize with a valid broker token', async () => {
-    const token = await new BrokerTokens(JWT_SECRET, AUD, ['mediawiki']).signAccessToken('user-1', 'client-1');
+    const token = await new BrokerTokens(JWT_SECRET, AUD, ['mediawiki']).signAccessToken('user-1', 'client-1', {
+      username: 'alice@example.com',
+      canWrite: true,
+    });
     const res = await request(server)
       .post('/mcp')
       .set('Authorization', `Bearer ${token}`)

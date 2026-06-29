@@ -1,11 +1,18 @@
 import { SignJWT, jwtVerify } from 'jose';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 
+export interface BrokerClaims {
+  /** Human-readable identity, used for wiki edit attribution. */
+  username: string;
+  /** Whether the user holds the Entra write role. */
+  canWrite: boolean;
+}
+
 /**
- * Issues and verifies the broker's own access tokens (HS256 JWTs). These are the
- * tokens handed to the MCP client; they are audience-bound to this server so the
- * resource server can reject tokens minted for anyone else. The user's wiki `sub`
- * is carried so requests can look up the stored wiki token.
+ * Issues and verifies the broker's own access tokens (HS256 JWTs), handed to the
+ * MCP client. Audience-bound to this server. Carries the Entra user id (`sub`),
+ * a display `username` for attribution, and the `canWrite` flag from the user's
+ * Entra app role.
  */
 export class BrokerTokens {
   private readonly key: Uint8Array;
@@ -18,8 +25,18 @@ export class BrokerTokens {
     this.key = new TextEncoder().encode(jwtSecret);
   }
 
-  async signAccessToken(sub: string, clientId: string, ttlSeconds = 3600): Promise<string> {
-    return new SignJWT({ client_id: clientId, scope: this.scopes.join(' ') })
+  async signAccessToken(
+    sub: string,
+    clientId: string,
+    claims: BrokerClaims,
+    ttlSeconds = 3600
+  ): Promise<string> {
+    return new SignJWT({
+      client_id: clientId,
+      scope: this.scopes.join(' '),
+      username: claims.username,
+      can_write: claims.canWrite,
+    })
       .setProtectedHeader({ alg: 'HS256' })
       .setSubject(sub)
       .setAudience(this.audience)
@@ -36,27 +53,11 @@ export class BrokerTokens {
       scopes: typeof payload.scope === 'string' && payload.scope.length > 0 ? payload.scope.split(' ') : [],
       expiresAt: payload.exp,
       resource: new URL(this.audience),
-      extra: { sub: payload.sub },
+      extra: {
+        sub: payload.sub,
+        username: payload.username as string | undefined,
+        canWrite: payload.can_write === true,
+      },
     };
-  }
-
-  /**
-   * Short-lived ticket binding a user (`sub`) to a single `wiki`, used to start
-   * lazy per-wiki consent. Distinct audience so it can never be used as an access
-   * token (or vice versa).
-   */
-  async signWikiTicket(sub: string, wiki: string, ttlSeconds = 600): Promise<string> {
-    return new SignJWT({ wiki })
-      .setProtectedHeader({ alg: 'HS256' })
-      .setSubject(sub)
-      .setAudience(`${this.audience}#wiki-ticket`)
-      .setIssuedAt()
-      .setExpirationTime(`${ttlSeconds}s`)
-      .sign(this.key);
-  }
-
-  async verifyWikiTicket(token: string): Promise<{ sub: string; wiki: string }> {
-    const { payload } = await jwtVerify(token, this.key, { audience: `${this.audience}#wiki-ticket` });
-    return { sub: payload.sub as string, wiki: payload.wiki as string };
   }
 }

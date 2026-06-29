@@ -3,30 +3,27 @@
  *
  * Only used when MEDIAWIKI_MCP_AUTH=oauth. The stdio and LibreChat header-HTTP
  * paths never call loadOAuthConfig.
+ *
+ * Auth model: the broker authenticates the user via Microsoft Entra (OIDC), then
+ * runs wiki actions on the per-wiki bot accounts (MEDIAWIKI_USERNAME_/PASSWORD_ vars),
+ * attributed to the Entra user. Any tenant member can read; only users carrying the
+ * write app-role can use write tools. No Extension:OAuth needed on the wikis.
  */
-/** One farm wiki's OAuth consumer. */
-export interface WikiOAuthConsumer {
-  /** Registered wiki name (matches MEDIAWIKI_WIKIS). */
-  name: string;
-  /** Wiki OAuth consumer client id. */
-  clientId: string;
-  /** Consumer client secret. Omitted for public PKCE consumers. */
-  clientSecret?: string;
-}
-
 export interface OAuthConfig {
   /** Public base URL of this MCP server, no trailing slash (e.g. https://mcp.example.com). */
   publicUrl: string;
   /** Host portion of publicUrl, used to namespace shared-Redis keys. */
   issuerHost: string;
-  /** OAuth-enabled farm wikis, each with its own consumer. */
-  wikis: WikiOAuthConsumer[];
-  /** Wiki used for the initial Claude login (must be one of `wikis`). */
-  primaryWiki: string;
+  /** Entra (Azure AD) tenant id. */
+  tenantId: string;
+  /** Entra app (client) id. */
+  clientId: string;
+  /** Entra app client secret (confidential web app). */
+  clientSecret: string;
+  /** Entra app-role name that grants write access (e.g. "Writer"). Read is open to any member. */
+  writeRole: string;
   /** Redis connection URL for shared broker state (redis://[:pass@]host:port). */
   redisUrl: string;
-  /** 32-byte key for AES-256-GCM encryption of stored wiki tokens. */
-  encryptionKey: Buffer;
   /** HS256 signing secret for broker-issued access tokens. */
   jwtSecret: string;
   /** Trust X-Forwarded-* (set when running behind traefik) so rate limiting keys on the real IP. */
@@ -53,36 +50,14 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
   const publicUrl = required(env, 'MEDIAWIKI_MCP_PUBLIC_URL').replace(/\/+$/, '');
   const issuerHost = new URL(publicUrl).host;
 
-  // OAuth-enabled wikis: MEDIAWIKI_OAUTH_WIKIS=itops,tech,... each with a
-  // MEDIAWIKI_OAUTH_CLIENT_ID_<WIKI> (+ optional _SECRET_<WIKI>).
-  const wikiNames = required(env, 'MEDIAWIKI_OAUTH_WIKIS')
-    .split(',').map((w) => w.trim()).filter((w) => w.length > 0);
-  if (wikiNames.length === 0) {
-    throw new Error('MEDIAWIKI_OAUTH_WIKIS must list at least one wiki');
-  }
-  const wikis: WikiOAuthConsumer[] = wikiNames.map((name) => {
-    const upper = name.toUpperCase();
-    return {
-      name,
-      clientId: required(env, `MEDIAWIKI_OAUTH_CLIENT_ID_${upper}`),
-      clientSecret: env[`MEDIAWIKI_OAUTH_CLIENT_SECRET_${upper}`]?.trim() || undefined,
-    };
-  });
-
-  const primaryWiki = env.MEDIAWIKI_OAUTH_PRIMARY_WIKI?.trim() || wikiNames[0];
-  if (!wikis.some((w) => w.name === primaryWiki)) {
-    throw new Error(`MEDIAWIKI_OAUTH_PRIMARY_WIKI "${primaryWiki}" is not in MEDIAWIKI_OAUTH_WIKIS`);
-  }
+  // Entra app (mirrors the bookstack-mcp variable names so the app can be shared).
+  const tenantId = required(env, 'OAUTH_TENANT_ID');
+  const clientId = required(env, 'OAUTH_CLIENT_ID');
+  const clientSecret = required(env, 'OAUTH_CLIENT_SECRET');
+  const writeRole = env.OAUTH_WRITE_ROLE?.trim() || 'Writer';
 
   const redisUrl = required(env, 'REDIS_URL');
   const jwtSecret = required(env, 'MEDIAWIKI_MCP_JWT_SECRET');
-
-  const encryptionKey = Buffer.from(required(env, 'MEDIAWIKI_MCP_ENCRYPTION_KEY'), 'base64');
-  if (encryptionKey.length !== 32) {
-    throw new Error(
-      `MEDIAWIKI_MCP_ENCRYPTION_KEY must decode to 32 bytes (got ${encryptionKey.length})`
-    );
-  }
 
   const allowedHostsRaw = env.MEDIAWIKI_MCP_ALLOWED_HOSTS?.trim();
   const allowedHosts = allowedHostsRaw
@@ -92,10 +67,11 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
   return {
     publicUrl,
     issuerHost,
-    wikis,
-    primaryWiki,
+    tenantId,
+    clientId,
+    clientSecret,
+    writeRole,
     redisUrl,
-    encryptionKey,
     jwtSecret,
     trustProxy: env.MEDIAWIKI_MCP_TRUST_PROXY === '1' || env.MEDIAWIKI_MCP_TRUST_PROXY === 'true',
     allowedHosts,

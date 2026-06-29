@@ -1,12 +1,5 @@
 import { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
-import {
-  TokenStore,
-  PendingAuth,
-  AuthCodeRecord,
-  RefreshRecord,
-  WikiTokenRecord,
-} from './token-store.js';
-import { encrypt, decrypt } from './crypto.js';
+import { TokenStore, PendingAuth, AuthCodeRecord, RefreshRecord } from './token-store.js';
 
 /** Minimal subset of the node-redis client this store needs (eases testing). */
 export interface RedisLike {
@@ -19,16 +12,15 @@ const TEN_MINUTES = 600;
 const THIRTY_ONE_DAYS = 31 * 24 * 60 * 60;
 
 /**
- * Redis-backed token store for the shared swarm Redis. Keys are namespaced by the
+ * Redis-backed broker state for the shared swarm Redis. Keys are namespaced by the
  * issuer host so one Redis serves every connector without collision. Pending auth
- * and authorization codes are short-lived; refresh and wiki tokens live as long as
- * the upstream refresh token. Wiki tokens are AES-256-GCM encrypted at rest.
+ * and authorization codes are short-lived; refresh tokens live ~a month. No wiki
+ * tokens or other secrets are stored (Entra tokens are not retained).
  */
 export class RedisTokenStore implements TokenStore {
   /** @param keyPrefix issuer host, e.g. "mediawiki-mcp.teamgleim.com" */
   constructor(
     private readonly redis: RedisLike,
-    private readonly encryptionKey: Buffer,
     private readonly keyPrefix: string
   ) {}
 
@@ -62,15 +54,6 @@ export class RedisTokenStore implements TokenStore {
   async takeAuthCode(code: string): Promise<AuthCodeRecord | undefined> {
     const raw = await this.redis.getDel(this.key('code', code));
     return raw ? (JSON.parse(raw) as AuthCodeRecord) : undefined;
-  }
-
-  async saveWikiToken(r: WikiTokenRecord): Promise<void> {
-    const blob = encrypt(JSON.stringify(r), this.encryptionKey);
-    await this.redis.set(this.key('wikitoken', `${r.wiki}:${r.sub}`), blob, { EX: THIRTY_ONE_DAYS });
-  }
-  async getWikiToken(sub: string, wiki: string): Promise<WikiTokenRecord | undefined> {
-    const blob = await this.redis.get(this.key('wikitoken', `${wiki}:${sub}`));
-    return blob ? (JSON.parse(decrypt(blob, this.encryptionKey)) as WikiTokenRecord) : undefined;
   }
 
   async saveRefresh(r: RefreshRecord): Promise<void> {

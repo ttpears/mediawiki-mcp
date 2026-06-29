@@ -10,19 +10,18 @@ import { WikiOrchestrator } from './wiki-orchestrator.js';
 import { registerAllTools, SessionContext } from './tools/index.js';
 import { OAuthConfig, isOAuthMode, loadOAuthConfig } from './auth/config.js';
 import { TokenStore } from './auth/token-store.js';
-import { MediaWikiOAuthClient } from './auth/mediawiki-oauth.js';
-import { MediaWikiOAuthProvider } from './auth/broker-provider.js';
+import { EntraOIDCClient } from './auth/entra-oidc.js';
+import { BrokerOAuthProvider } from './auth/broker-provider.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
-import { createWikiAuthProvider } from './auth/wiki-auth-provider.js';
 
 /** Dependencies that enable OAuth broker mode. When omitted, the server runs the
  *  unauthenticated header-based path used by LibreChat. */
 export interface OAuthDeps {
   config: OAuthConfig;
   store: TokenStore;
-  /** Map of wiki name → its MediaWiki OAuth client (one per farm wiki). */
-  upstreams: Map<string, MediaWikiOAuthClient>;
+  /** Entra OIDC client used to authenticate the connecting user. */
+  entra: EntraOIDCClient;
 }
 
 interface Session {
@@ -73,11 +72,11 @@ export async function createHTTPServer(
       `${oauth.config.publicUrl}/mcp`,
       oauth.config.scopesSupported
     );
-    const provider = new MediaWikiOAuthProvider(
+    const provider = new BrokerOAuthProvider(
       oauth.store,
-      oauth.upstreams,
-      oauth.config.primaryWiki,
-      brokerTokens
+      oauth.entra,
+      brokerTokens,
+      oauth.config.writeRole
     );
     const { router, resourceMetadataUrl } = createBrokerRouter(oauth.config, provider);
     app.use(router);
@@ -95,18 +94,14 @@ export async function createHTTPServer(
       if (!sub) {
         throw new Error('Authenticated request is missing a subject');
       }
-      // Serve the OAuth-enabled farm wikis, acting as this user on each.
-      const userRegistry = new WikiRegistry();
-      for (const w of oauth.config.wikis) {
-        userRegistry.addWiki(registry.resolveWiki(w.name));
-      }
-      userRegistry.setDefault(oauth.config.primaryWiki);
-      const orchestrator = new WikiOrchestrator(
-        userRegistry,
-        createWikiAuthProvider(sub, oauth.store, oauth.upstreams, brokerTokens!, oauth.config.publicUrl)
-      );
+      // Entra authenticated the user; wiki actions run on the bot account (the
+      // registry's per-wiki bot creds), attributed to the Entra user. Write tools
+      // are gated by the user's Entra role (canWrite).
+      const username = (req.auth?.extra?.username as string | undefined) ?? sub;
+      const canWrite = req.auth?.extra?.canWrite === true;
+      const orchestrator = new WikiOrchestrator(registry);
       await orchestrator.initialize();
-      return { context: { orchestrator, sessionUser: sub }, sub };
+      return { context: { orchestrator, sessionUser: username, canWrite }, sub };
     }
 
     const orchestrator = new WikiOrchestrator(registry);
@@ -234,16 +229,14 @@ if (import.meta.url === `file://${process.argv[1]}`) {
         redis.on('error', (err) => console.error('Redis error:', err));
         await redis.connect();
         const { RedisTokenStore } = await import('./auth/redis-token-store.js');
-        const store = new RedisTokenStore(redis, config.encryptionKey, config.issuerHost);
-        const upstreams = new Map<string, MediaWikiOAuthClient>();
-        for (const w of config.wikis) {
-          const wikiConfig = registry.resolveWiki(w.name);
-          upstreams.set(
-            w.name,
-            new MediaWikiOAuthClient(wikiConfig.baseUrl, w.clientId, w.clientSecret, `${config.publicUrl}/callback`)
-          );
-        }
-        await createHTTPServer(registry, port, host, { config, store, upstreams });
+        const store = new RedisTokenStore(redis, config.issuerHost);
+        const entra = new EntraOIDCClient(
+          config.tenantId,
+          config.clientId,
+          config.clientSecret,
+          `${config.publicUrl}/callback`
+        );
+        await createHTTPServer(registry, port, host, { config, store, entra });
       } else {
         await createHTTPServer(registry, port, host);
       }

@@ -1,24 +1,22 @@
 import { describe, it, expect, vi } from 'vitest';
-import { MediaWikiOAuthProvider } from '../../src/auth/broker-provider.js';
+import { BrokerOAuthProvider } from '../../src/auth/broker-provider.js';
 import { InMemoryTokenStore } from '../../src/auth/token-store.js';
 import { BrokerTokens } from '../../src/auth/tokens.js';
-import type { MediaWikiOAuthClient } from '../../src/auth/mediawiki-oauth.js';
+import type { EntraOIDCClient } from '../../src/auth/entra-oidc.js';
 import type { OAuthClientInformationFull } from '@modelcontextprotocol/sdk/shared/auth.js';
 
 const AUD = 'https://mcp.example.com/mcp';
+const WRITE_ROLE = 'Writer';
 const CLIENT: OAuthClientInformationFull = {
   client_id: 'c1',
   redirect_uris: ['https://claude.ai/api/mcp/auth_callback'],
 };
 
-function makeUpstream(overrides: Partial<MediaWikiOAuthClient> = {}): MediaWikiOAuthClient {
+function makeEntra(roles: string[] = ['Writer']): EntraOIDCClient {
   return {
-    buildAuthorizeUrl: vi.fn().mockReturnValue('https://wiki.example.com/rest.php/oauth2/authorize?x=1'),
-    exchangeCode: vi.fn().mockResolvedValue({ accessToken: 'wiki-a', refreshToken: 'wiki-r', expiresIn: 3600 }),
-    fetchIdentity: vi.fn().mockResolvedValue({ sub: 'user-7', username: 'Bob' }),
-    refresh: vi.fn(),
-    ...overrides,
-  } as unknown as MediaWikiOAuthClient;
+    buildAuthorizeUrl: vi.fn().mockReturnValue('https://login.microsoftonline.com/t/oauth2/v2.0/authorize?x=1'),
+    exchangeCode: vi.fn().mockResolvedValue({ sub: 'user-7', username: 'bob@example.com', roles }),
+  } as unknown as EntraOIDCClient;
 }
 
 function counterGenId(): () => string {
@@ -26,18 +24,15 @@ function counterGenId(): () => string {
   return () => `id${n++}`;
 }
 
-function makeProvider(store = new InMemoryTokenStore(), upstream = makeUpstream()) {
+function makeProvider(roles: string[] = ['Writer'], store = new InMemoryTokenStore()) {
   const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-  const upstreams = new Map([['Docs', upstream]]);
-  return {
-    provider: new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId()),
-    store,
-    upstream,
-    tokens,
-  };
+  const entra = makeEntra(roles);
+  return { provider: new BrokerOAuthProvider(store, entra, tokens, WRITE_ROLE, counterGenId()), store, entra, tokens };
 }
 
-describe('MediaWikiOAuthProvider', () => {
+const authzParams = { redirectUri: 'https://claude.ai/api/mcp/auth_callback', state: 'cs', codeChallenge: 'claude-chal' };
+
+describe('BrokerOAuthProvider', () => {
   it('registers a client with a generated id', async () => {
     const { provider, store } = makeProvider();
     const full = await provider.clientsStore.registerClient!({ redirect_uris: ['https://claude.ai/api/mcp/auth_callback'] });
@@ -45,75 +40,42 @@ describe('MediaWikiOAuthProvider', () => {
     expect(await store.getClient('id0')).toBeDefined();
   });
 
-  it('authorize stores a pending record and redirects to the upstream wiki', async () => {
-    const { provider, upstream } = makeProvider();
+  it('authorize stores a pending record and redirects to Entra', async () => {
+    const { provider, entra } = makeProvider();
     const redirect = vi.fn();
-    await provider.authorize(CLIENT, { redirectUri: 'https://claude.ai/api/mcp/auth_callback', state: 'cs', codeChallenge: 'claude-chal' } as never, { redirect } as never);
-    expect(upstream.buildAuthorizeUrl).toHaveBeenCalledWith('id0', expect.any(String));
-    expect(redirect).toHaveBeenCalledWith('https://wiki.example.com/rest.php/oauth2/authorize?x=1');
+    await provider.authorize(CLIENT, authzParams as never, { redirect } as never);
+    expect(entra.buildAuthorizeUrl).toHaveBeenCalledWith('id0', expect.any(String));
+    expect(redirect).toHaveBeenCalledWith('https://login.microsoftonline.com/t/oauth2/v2.0/authorize?x=1');
   });
 
-  it('handles the upstream callback: stores wiki token and redirects with a code', async () => {
-    const { provider, store } = makeProvider();
+  it('callback issues a write-capable token for a user with the write role', async () => {
+    const { provider } = makeProvider(['Writer', 'OtherRole']);
     const redirect = vi.fn();
-    await provider.authorize(CLIENT, { redirectUri: 'https://claude.ai/api/mcp/auth_callback', state: 'cs', codeChallenge: 'claude-chal' } as never, { redirect } as never);
+    await provider.authorize(CLIENT, authzParams as never, { redirect } as never);
 
-    const result = await provider.handleUpstreamCallback('wiki-code', 'id0');
-    expect(result.kind).toBe('login');
-    const url = new URL((result as { redirectTo: string }).redirectTo);
+    const { redirectTo } = await provider.handleUpstreamCallback('entra-code', 'id0');
+    const url = new URL(redirectTo);
     expect(url.origin + url.pathname).toBe('https://claude.ai/api/mcp/auth_callback');
     expect(url.searchParams.get('state')).toBe('cs');
     const brokerCode = url.searchParams.get('code')!;
-    expect(brokerCode).toBeTruthy();
 
-    const wikiTok = await store.getWikiToken('user-7', 'Docs');
-    expect(wikiTok?.accessToken).toBe('wiki-a');
-    expect(wikiTok?.username).toBe('Bob');
-
-    // challenge round-trips, then code exchanges into a verifiable access token
     expect(await provider.challengeForAuthorizationCode(CLIENT, brokerCode)).toBe('claude-chal');
     const issued = await provider.exchangeAuthorizationCode(CLIENT, brokerCode);
-    expect(issued.token_type).toBe('Bearer');
     const info = await provider.verifyAccessToken(issued.access_token);
     expect(info.extra?.sub).toBe('user-7');
-    expect(issued.refresh_token).toBeTruthy();
+    expect(info.extra?.username).toBe('bob@example.com');
+    expect(info.extra?.canWrite).toBe(true);
   });
 
-  it('lazy-authorizes a second wiki when the username matches the primary identity', async () => {
-    const store = new InMemoryTokenStore();
-    const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-    const docs = makeUpstream();
-    const ops = makeUpstream({
-      exchangeCode: vi.fn().mockResolvedValue({ accessToken: 'ops-a', refreshToken: 'ops-r', expiresIn: 3600 }),
-      fetchIdentity: vi.fn().mockResolvedValue({ sub: 'user-7', username: 'Bob' }),
-    });
-    const upstreams = new Map([['Docs', docs], ['Ops', ops]]);
-    const provider = new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId());
-
-    // user already signed in to the primary wiki
-    await store.saveWikiToken({ sub: 'user-7', wiki: 'Docs', username: 'Bob', accessToken: 'd', refreshToken: 'dr', expiresAt: Date.now() + 1e6 });
-
-    const ticket = await tokens.signWikiTicket('user-7', 'Ops');
-    await provider.beginWikiAuthorization(ticket); // pending state = id0
-    const result = await provider.handleUpstreamCallback('ops-code', 'id0');
-    expect(result).toEqual({ kind: 'lazy', wiki: 'Ops' });
-    expect((await store.getWikiToken('user-7', 'Ops'))?.accessToken).toBe('ops-a');
-  });
-
-  it('rejects lazy authorization when the wiki username does not match', async () => {
-    const store = new InMemoryTokenStore();
-    const tokens = new BrokerTokens('secret', AUD, ['mediawiki']);
-    const ops = makeUpstream({
-      fetchIdentity: vi.fn().mockResolvedValue({ sub: 'x', username: 'Mallory' }),
-    });
-    const upstreams = new Map([['Docs', makeUpstream()], ['Ops', ops]]);
-    const provider = new MediaWikiOAuthProvider(store, upstreams, 'Docs', tokens, counterGenId());
-    await store.saveWikiToken({ sub: 'user-7', wiki: 'Docs', username: 'Bob', accessToken: 'd', refreshToken: 'dr', expiresAt: Date.now() + 1e6 });
-
-    const ticket = await tokens.signWikiTicket('user-7', 'Ops');
-    await provider.beginWikiAuthorization(ticket);
-    await expect(provider.handleUpstreamCallback('ops-code', 'id0')).rejects.toThrow(/does not match/);
-    expect(await store.getWikiToken('user-7', 'Ops')).toBeUndefined();
+  it('issues a read-only token when the user lacks the write role', async () => {
+    const { provider } = makeProvider(['SomeOtherRole']);
+    const redirect = vi.fn();
+    await provider.authorize(CLIENT, authzParams as never, { redirect } as never);
+    const { redirectTo } = await provider.handleUpstreamCallback('entra-code', 'id0');
+    const brokerCode = new URL(redirectTo).searchParams.get('code')!;
+    const issued = await provider.exchangeAuthorizationCode(CLIENT, brokerCode);
+    const info = await provider.verifyAccessToken(issued.access_token);
+    expect(info.extra?.canWrite).toBe(false);
   });
 
   it('rejects an unknown authorization state', async () => {
@@ -121,13 +83,14 @@ describe('MediaWikiOAuthProvider', () => {
     await expect(provider.handleUpstreamCallback('x', 'nope')).rejects.toThrow(/expired/);
   });
 
-  it('rotates refresh tokens', async () => {
+  it('rotates refresh tokens and preserves write capability', async () => {
     const { provider, store } = makeProvider();
-    await store.saveRefresh({ token: 'old-rt', sub: 'user-7', clientId: 'c1' });
+    await store.saveRefresh({ token: 'old-rt', sub: 'user-7', username: 'bob', canWrite: true, clientId: 'c1' });
     const issued = await provider.exchangeRefreshToken(CLIENT, 'old-rt');
     expect(issued.refresh_token).toBeTruthy();
     expect(issued.refresh_token).not.toBe('old-rt');
-    // old refresh token is consumed
+    const info = await provider.verifyAccessToken(issued.access_token);
+    expect(info.extra?.canWrite).toBe(true);
     await expect(provider.exchangeRefreshToken(CLIENT, 'old-rt')).rejects.toThrow();
   });
 });

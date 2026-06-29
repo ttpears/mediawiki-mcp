@@ -11,9 +11,31 @@ import { registerActivityTools } from './activity-tools.js';
 
 export interface SessionContext {
   orchestrator: WikiOrchestrator;
-  /** Username from HTTP header (populated in streamable-http mode, undefined in stdio) */
+  /** Username for edit attribution (HTTP header in LibreChat mode, Entra identity in OAuth mode) */
   sessionUser?: string;
+  /**
+   * Whether write tools (create/update/delete/upload) are permitted. Undefined or
+   * true = allowed (stdio + LibreChat). In OAuth mode this reflects the user's
+   * Entra write role. Write handlers must check `isWriteAllowed(context)`.
+   */
+  canWrite?: boolean;
 }
+
+/** Write is allowed unless explicitly disabled (OAuth users lacking the write role). */
+export function isWriteAllowed(context: SessionContext): boolean {
+  return context.canWrite !== false;
+}
+
+/** Error payload returned by write tools when the user lacks the write role. */
+export const WRITE_FORBIDDEN_RESULT = {
+  isError: true as const,
+  content: [
+    {
+      type: 'text' as const,
+      text: 'Write access denied: your account does not have the required role to edit. Read operations are still available.',
+    },
+  ],
+};
 
 export function registerAllTools(server: McpServer, context: SessionContext): void {
   registerWikiTools(server, context.orchestrator);
