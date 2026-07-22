@@ -15,6 +15,7 @@ import { EntraOIDCClient } from './auth/entra-oidc.js';
 import { BrokerOAuthProvider } from './auth/broker-provider.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
+import { resolveTrustProxy } from './trust-proxy.js';
 
 /** Dependencies that enable OAuth broker mode. When omitted, the server runs the
  *  unauthenticated header-based path used by LibreChat. */
@@ -45,7 +46,10 @@ export async function createHTTPServer(
   // client IP, not the proxy's (otherwise all clients share one IP). Must be set
   // before the rate-limited auth router is mounted.
   if (oauth?.config.trustProxy) {
-    app.set('trust proxy', true);
+    // Single hop (traefik). Must be a number — boolean `true` trips
+    // express-rate-limit's ERR_ERL_PERMISSIVE_TRUST_PROXY on the SDK's OAuth
+    // endpoints. See src/trust-proxy.ts.
+    app.set('trust proxy', resolveTrustProxy(true));
   }
 
   // Restrict accepted Host headers (localhost always allowed for healthchecks).
