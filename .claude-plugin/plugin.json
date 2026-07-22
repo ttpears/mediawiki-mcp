@@ -1,18 +1,25 @@
 {
   "name": "mediawiki-mcp",
   "description": "MediaWiki MCP server with multi-wiki support and REST API",
-  "version": "2.3.0",
+  "version": "2.3.1",
   "author": {
     "name": "Tim Pearson"
   },
   "homepage": "https://github.com/ttpears/mediawiki-mcp",
   "repository": "https://github.com/ttpears/mediawiki-mcp",
   "license": "MIT",
-  "keywords": ["mcp", "mediawiki", "wiki"],
+  "keywords": [
+    "mcp",
+    "mediawiki",
+    "wiki"
+  ],
   "mcpServers": {
     "mediawiki": {
       "command": "npx",
-      "args": ["-y", "mediawiki-mcp"]
+      "args": [
+        "-y",
+        "mediawiki-mcp"
+      ]
     }
   }
 }
