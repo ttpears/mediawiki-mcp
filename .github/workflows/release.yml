@@ -9,8 +9,13 @@ permissions:
   id-token: write
 
 jobs:
+  # Both jobs below target the `release` environment, which has required
+  # reviewers. Merging a version bump still auto-tags (see ci.yml), but nothing
+  # reaches npm, GHCR, or GitHub Releases until a reviewer approves the run.
+  # One approval unblocks every job in the run that targets the environment.
   release:
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - uses: actions/checkout@v4
 
@@ -54,6 +59,7 @@ jobs:
   # (ghcr.io/<owner>/mediawiki-mcp:X.Y.Z + :latest).
   docker:
     runs-on: ubuntu-latest
+    environment: release
     permissions:
       contents: read
       packages: write
