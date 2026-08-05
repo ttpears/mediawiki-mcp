@@ -16,6 +16,7 @@ import { BrokerOAuthProvider } from './auth/broker-provider.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
 import { resolveTrustProxy } from './trust-proxy.js';
+import { SessionRegistry, SessionRegistryOptions, DEFAULT_IDLE_TTL_MS, DEFAULT_MAX_SESSIONS } from './session-registry.js';
 
 /** Dependencies that enable OAuth broker mode. When omitted, the server runs the
  *  unauthenticated header-based path used by LibreChat. */
@@ -26,19 +27,12 @@ export interface OAuthDeps {
   entra: EntraOIDCClient;
 }
 
-interface Session {
-  transport: StreamableHTTPServerTransport;
-  server: McpServer;
-  context: SessionContext;
-  /** Wiki `sub` that initialized this session (OAuth mode only). */
-  sub?: string;
-}
-
 export async function createHTTPServer(
   registry: WikiRegistry,
   port: number = 8009,
   host: string = 'localhost',
-  oauth?: OAuthDeps
+  oauth?: OAuthDeps,
+  sessionOptions?: Partial<SessionRegistryOptions>
 ): Promise<Server> {
   const app = express();
 
@@ -67,7 +61,12 @@ export async function createHTTPServer(
 
   app.use(express.json());
 
-  const sessions = new Map<string, Session>();
+  const sessions = new SessionRegistry({
+    idleTtlMs: sessionOptions?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS,
+    maxSessions: sessionOptions?.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    sweepIntervalMs: sessionOptions?.sweepIntervalMs,
+  });
+  sessions.startSweep();
 
   // OAuth broker mode: mount auth-server endpoints and protect /mcp with bearer auth.
   let brokerTokens: BrokerTokens | undefined;
@@ -119,8 +118,8 @@ export async function createHTTPServer(
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Existing session — route to its transport
-    if (sessionId && sessions.has(sessionId)) {
-      const session = sessions.get(sessionId)!;
+    const session = sessionId ? sessions.get(sessionId) : undefined;
+    if (session) {
       if (oauth) {
         // Reject if a different authenticated user reuses this session id.
         const sub = req.auth?.extra?.sub as string | undefined;
@@ -144,6 +143,15 @@ export async function createHTTPServer(
 
     // New session — must be an initialize request
     if (!sessionId && isInitializeRequest(req.body)) {
+      if (sessions.atCapacity()) {
+        res.status(503).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Server has reached maximum session capacity' },
+          id: null,
+        });
+        return;
+      }
+
       let built: { context: SessionContext; sub?: string };
       try {
         built = await buildContext(req);
@@ -216,6 +224,7 @@ export async function createHTTPServer(
       console.log(`MediaWiki MCP server v${VERSION} on http://${host}:${port}/mcp (auth: ${oauth ? 'oauth' : 'none'})`);
       resolve(server);
     });
+    server.on('close', () => sessions.dispose());
   });
 }
 
@@ -225,6 +234,10 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     const registry = WikiRegistry.fromEnvironment(env);
     const port = parseInt(env.MEDIAWIKI_MCP_PORT || '8009', 10);
     const host = env.MEDIAWIKI_MCP_HOST || 'localhost';
+    const sessionOptions = {
+      idleTtlMs: env.MEDIAWIKI_SESSION_IDLE_TTL_MS ? parseInt(env.MEDIAWIKI_SESSION_IDLE_TTL_MS, 10) : undefined,
+      maxSessions: env.MEDIAWIKI_MAX_SESSIONS ? parseInt(env.MEDIAWIKI_MAX_SESSIONS, 10) : undefined,
+    };
 
     try {
       if (isOAuthMode(env)) {
@@ -251,9 +264,9 @@ if (import.meta.url === `file://${process.argv[1]}`) {
           config.clientSecret,
           `${config.publicUrl}/callback`
         );
-        await createHTTPServer(registry, port, host, { config, store, entra });
+        await createHTTPServer(registry, port, host, { config, store, entra }, sessionOptions);
       } else {
-        await createHTTPServer(registry, port, host);
+        await createHTTPServer(registry, port, host, undefined, sessionOptions);
       }
     } catch (error) {
       console.error('Fatal error:', error);
