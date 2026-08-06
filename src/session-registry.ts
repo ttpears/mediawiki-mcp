@@ -83,6 +83,11 @@ export class SessionRegistry {
   }
 
   private evict(id: string, entry: Entry): void {
+    // `entry` is captured as a parameter before the delete below, so close()
+    // still runs against the right transport afterward. Looking it up via
+    // this.entries.get(id) after the delete instead would return undefined
+    // and silently skip close() — reintroducing the leak this class exists
+    // to fix.
     this.entries.delete(id);
     void entry.session.transport.close().catch(() => {});
   }

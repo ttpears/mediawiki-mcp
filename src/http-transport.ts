@@ -228,49 +228,90 @@ export async function createHTTPServer(
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  void (async () => {
-    const env = process.env as Record<string, string | undefined>;
-    const registry = WikiRegistry.fromEnvironment(env);
-    const port = parseInt(env.MEDIAWIKI_MCP_PORT || '8009', 10);
-    const host = env.MEDIAWIKI_MCP_HOST || 'localhost';
-    const sessionOptions = {
-      idleTtlMs: env.MEDIAWIKI_SESSION_IDLE_TTL_MS ? parseInt(env.MEDIAWIKI_SESSION_IDLE_TTL_MS, 10) : undefined,
-      maxSessions: env.MEDIAWIKI_MAX_SESSIONS ? parseInt(env.MEDIAWIKI_MAX_SESSIONS, 10) : undefined,
-    };
+/**
+ * Parses a positive-integer env var. Blank, non-numeric, zero, or negative
+ * values fall back to undefined (letting the caller's `?? DEFAULT` apply)
+ * instead of propagating NaN — `parseInt` returns NaN for non-numeric input,
+ * and `NaN ?? DEFAULT` stays NaN since `??` only rescues null/undefined.
+ */
+export function parsePositiveIntEnv(raw: string | undefined): number | undefined {
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
 
-    try {
-      if (isOAuthMode(env)) {
-        const config = loadOAuthConfig(env);
-        let store: TokenStore;
-        if (config.redisUrl) {
-          const { createClient } = await import('redis');
-          const redis = createClient({ url: config.redisUrl });
-          redis.on('error', (err) => console.error('Redis error:', err));
-          await redis.connect();
-          const { RedisTokenStore } = await import('./auth/redis-token-store.js');
-          store = new RedisTokenStore(redis, config.issuerHost);
-        } else {
-          console.warn(
-            'REDIS_URL not set — using in-memory broker state. Single instance only; ' +
-              'sessions are lost on restart and not shared across replicas. Set REDIS_URL for hosted deployments.'
-          );
-          const { InMemoryTokenStore } = await import('./auth/token-store.js');
-          store = new InMemoryTokenStore();
-        }
-        const entra = new EntraOIDCClient(
-          config.tenantId,
-          config.clientId,
-          config.clientSecret,
-          `${config.publicUrl}/callback`
-        );
-        await createHTTPServer(registry, port, host, { config, store, entra }, sessionOptions);
-      } else {
-        await createHTTPServer(registry, port, host, undefined, sessionOptions);
-      }
-    } catch (error) {
-      console.error('Fatal error:', error);
-      process.exit(1);
+/**
+ * Parses MEDIAWIKI_MCP_PORT to a valid TCP port, falling back to `fallback`
+ * on blank, non-numeric, or out-of-range input instead of reaching
+ * net.Server.listen() with NaN and crashing with an uncaught RangeError.
+ * Unlike parsePositiveIntEnv, 0 is accepted — Node treats it as "assign any
+ * free port," a legitimate value here rather than a malformed one.
+ */
+export function parsePortEnv(raw: string | undefined, fallback: number): number {
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+export interface ResolvedServerConfig {
+  registry: WikiRegistry;
+  port: number;
+  host: string;
+  sessionOptions: Partial<SessionRegistryOptions>;
+}
+
+/**
+ * Assembles createHTTPServer's non-OAuth config straight from env — the same
+ * parsing the CLI entry point uses, extracted so it's directly testable
+ * without binding a real socket.
+ */
+export function resolveServerConfig(env: Record<string, string | undefined>): ResolvedServerConfig {
+  return {
+    registry: WikiRegistry.fromEnvironment(env),
+    port: parsePortEnv(env.MEDIAWIKI_MCP_PORT, 8009),
+    host: env.MEDIAWIKI_MCP_HOST || 'localhost',
+    sessionOptions: {
+      idleTtlMs: parsePositiveIntEnv(env.MEDIAWIKI_SESSION_IDLE_TTL_MS),
+      maxSessions: parsePositiveIntEnv(env.MEDIAWIKI_MAX_SESSIONS),
+    },
+  };
+}
+
+/** Builds and starts the HTTP server straight from env — the CLI entry point's real bootstrap path, exported so tests can exercise it directly. */
+export async function startServerFromEnv(env: Record<string, string | undefined>): Promise<Server> {
+  const { registry, port, host, sessionOptions } = resolveServerConfig(env);
+
+  if (isOAuthMode(env)) {
+    const config = loadOAuthConfig(env);
+    let store: TokenStore;
+    if (config.redisUrl) {
+      const { createClient } = await import('redis');
+      const redis = createClient({ url: config.redisUrl });
+      redis.on('error', (err) => console.error('Redis error:', err));
+      await redis.connect();
+      const { RedisTokenStore } = await import('./auth/redis-token-store.js');
+      store = new RedisTokenStore(redis, config.issuerHost);
+    } else {
+      console.warn(
+        'REDIS_URL not set — using in-memory broker state. Single instance only; ' +
+          'sessions are lost on restart and not shared across replicas. Set REDIS_URL for hosted deployments.'
+      );
+      const { InMemoryTokenStore } = await import('./auth/token-store.js');
+      store = new InMemoryTokenStore();
     }
-  })();
+    const entra = new EntraOIDCClient(
+      config.tenantId,
+      config.clientId,
+      config.clientSecret,
+      `${config.publicUrl}/callback`
+    );
+    return createHTTPServer(registry, port, host, { config, store, entra }, sessionOptions);
+  }
+
+  return createHTTPServer(registry, port, host, undefined, sessionOptions);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  void startServerFromEnv(process.env as Record<string, string | undefined>).catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
 }
