@@ -96,14 +96,10 @@ node --env-file=.env dist/index.js
 npm test
 ```
 
-This runs `vitest`. Passing looks like:
+This runs `vitest`. Run `npm test` yourself to see the current pass counts —
+they change as PRs add tests, so don't trust a number written down here.
 
-```
-Test Files  19 passed (19)
-     Tests  158 passed (158)
-```
-
-Coverage here is solid — 19 test files across the wiki registry/orchestrator,
+Coverage here is solid — test files span the wiki registry/orchestrator,
 REST and Action API clients, auth (OAuth broker, token store, write-gating),
 and more.
 
@@ -141,9 +137,10 @@ never ships anything on its own.
   `.env` per the setup steps silently does nothing unless you load it
   yourself: `node --env-file=.env dist/index.js`. A known issue, not yet
   fixed as of this PR.
-- **`npm install` reports a double-digit number of audit vulnerabilities**
-  (including one critical) on a fresh install. Worth a look eventually, not a
-  blocker for local dev.
+- **`npm install` reports a double-digit number of audit vulnerabilities.**
+  See [#9](https://github.com/ttpears/mediawiki-mcp/issues/9) for the actual
+  `npm audit` output and a breakdown of which ones are dev-only/transitive
+  versus reachable from the runtime path. Not a blocker for local dev.
 - Once running, the server sits in stdio mode (or serves HTTP, if using
   `start:http`) waiting for an MCP client to connect — that's expected
   behavior, not a hang.
