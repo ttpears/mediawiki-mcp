@@ -4,6 +4,36 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.4.0] - 2026-08-12
+
+### Added
+- **Idle-session TTL and hard session cap.** `SessionRegistry` sweeps sessions
+  that have gone idle and rejects new `initialize` requests once the cap is
+  reached. Configurable via `MEDIAWIKI_SESSION_IDLE_TTL_MS` (default 30 minutes)
+  and `MEDIAWIKI_MAX_SESSIONS` (default 1000); both documented in `.env.example`.
+- First `CONTRIBUTING.md` — local throwaway-wiki setup, bot-password creation,
+  test and release flow, and the known rough edges hit while writing it.
+
+### Fixed
+- **Session leak in the HTTP transport.** The session map had no idle TTL and no
+  size cap, and cleanup only ran from `transport.onclose` — which never fires for
+  a session abandoned rather than closed (client crash, dropped connection, proxy
+  timeout). Each leaked entry pinned an `McpServer` and a `WikiOrchestrator`
+  holding a live client per registered wiki. `POST`/`GET`/`DELETE` now all route
+  through the same expiry-checked lookup; previously only `POST` consulted any
+  guard.
+- **`MEDIAWIKI_MCP_PORT` crash on non-numeric input.** `parseInt` returned `NaN`,
+  which reached `net.Server.listen()` and aborted startup with an uncaught
+  `RangeError`. Invalid or out-of-range values now fall back to the default port.
+- Session TTL and cap env vars are parsed through a positive-integer guard, so a
+  malformed value falls back to its default instead of propagating `NaN` and
+  silently disabling both the sweep and the cap.
+
+### Changed
+- `npm publish`, the GHCR image, and the GitHub Release now run behind the
+  `release` environment and wait on maintainer approval; merging a version bump
+  still auto-tags.
+
 ## [2.3.0] - 2026-06-29
 
 ### Added
