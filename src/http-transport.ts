@@ -16,6 +16,7 @@ import { BrokerOAuthProvider } from './auth/broker-provider.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
 import { resolveTrustProxy } from './trust-proxy.js';
+import { SessionRegistry, SessionRegistryOptions, DEFAULT_IDLE_TTL_MS, DEFAULT_MAX_SESSIONS } from './session-registry.js';
 
 /** Dependencies that enable OAuth broker mode. When omitted, the server runs the
  *  unauthenticated header-based path used by LibreChat. */
@@ -26,19 +27,12 @@ export interface OAuthDeps {
   entra: EntraOIDCClient;
 }
 
-interface Session {
-  transport: StreamableHTTPServerTransport;
-  server: McpServer;
-  context: SessionContext;
-  /** Wiki `sub` that initialized this session (OAuth mode only). */
-  sub?: string;
-}
-
 export async function createHTTPServer(
   registry: WikiRegistry,
   port: number = 8009,
   host: string = 'localhost',
-  oauth?: OAuthDeps
+  oauth?: OAuthDeps,
+  sessionOptions?: Partial<SessionRegistryOptions>
 ): Promise<Server> {
   const app = express();
 
@@ -67,7 +61,12 @@ export async function createHTTPServer(
 
   app.use(express.json());
 
-  const sessions = new Map<string, Session>();
+  const sessions = new SessionRegistry({
+    idleTtlMs: sessionOptions?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS,
+    maxSessions: sessionOptions?.maxSessions ?? DEFAULT_MAX_SESSIONS,
+    sweepIntervalMs: sessionOptions?.sweepIntervalMs,
+  });
+  sessions.startSweep();
 
   // OAuth broker mode: mount auth-server endpoints and protect /mcp with bearer auth.
   let brokerTokens: BrokerTokens | undefined;
@@ -119,8 +118,8 @@ export async function createHTTPServer(
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Existing session — route to its transport
-    if (sessionId && sessions.has(sessionId)) {
-      const session = sessions.get(sessionId)!;
+    const session = sessionId ? sessions.get(sessionId) : undefined;
+    if (session) {
       if (oauth) {
         // Reject if a different authenticated user reuses this session id.
         const sub = req.auth?.extra?.sub as string | undefined;
@@ -144,6 +143,15 @@ export async function createHTTPServer(
 
     // New session — must be an initialize request
     if (!sessionId && isInitializeRequest(req.body)) {
+      if (sessions.atCapacity()) {
+        res.status(503).json({
+          jsonrpc: '2.0',
+          error: { code: -32000, message: 'Server has reached maximum session capacity' },
+          id: null,
+        });
+        return;
+      }
+
       let built: { context: SessionContext; sub?: string };
       try {
         built = await buildContext(req);
@@ -216,48 +224,94 @@ export async function createHTTPServer(
       console.log(`MediaWiki MCP server v${VERSION} on http://${host}:${port}/mcp (auth: ${oauth ? 'oauth' : 'none'})`);
       resolve(server);
     });
+    server.on('close', () => sessions.dispose());
   });
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
-  void (async () => {
-    const env = process.env as Record<string, string | undefined>;
-    const registry = WikiRegistry.fromEnvironment(env);
-    const port = parseInt(env.MEDIAWIKI_MCP_PORT || '8009', 10);
-    const host = env.MEDIAWIKI_MCP_HOST || 'localhost';
+/**
+ * Parses a positive-integer env var. Blank, non-numeric, zero, or negative
+ * values fall back to undefined (letting the caller's `?? DEFAULT` apply)
+ * instead of propagating NaN — `parseInt` returns NaN for non-numeric input,
+ * and `NaN ?? DEFAULT` stays NaN since `??` only rescues null/undefined.
+ */
+export function parsePositiveIntEnv(raw: string | undefined): number | undefined {
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : undefined;
+}
 
-    try {
-      if (isOAuthMode(env)) {
-        const config = loadOAuthConfig(env);
-        let store: TokenStore;
-        if (config.redisUrl) {
-          const { createClient } = await import('redis');
-          const redis = createClient({ url: config.redisUrl });
-          redis.on('error', (err) => console.error('Redis error:', err));
-          await redis.connect();
-          const { RedisTokenStore } = await import('./auth/redis-token-store.js');
-          store = new RedisTokenStore(redis, config.issuerHost);
-        } else {
-          console.warn(
-            'REDIS_URL not set — using in-memory broker state. Single instance only; ' +
-              'sessions are lost on restart and not shared across replicas. Set REDIS_URL for hosted deployments.'
-          );
-          const { InMemoryTokenStore } = await import('./auth/token-store.js');
-          store = new InMemoryTokenStore();
-        }
-        const entra = new EntraOIDCClient(
-          config.tenantId,
-          config.clientId,
-          config.clientSecret,
-          `${config.publicUrl}/callback`
-        );
-        await createHTTPServer(registry, port, host, { config, store, entra });
-      } else {
-        await createHTTPServer(registry, port, host);
-      }
-    } catch (error) {
-      console.error('Fatal error:', error);
-      process.exit(1);
+/**
+ * Parses MEDIAWIKI_MCP_PORT to a valid TCP port, falling back to `fallback`
+ * on blank, non-numeric, or out-of-range input instead of reaching
+ * net.Server.listen() with NaN and crashing with an uncaught RangeError.
+ * Unlike parsePositiveIntEnv, 0 is accepted — Node treats it as "assign any
+ * free port," a legitimate value here rather than a malformed one.
+ */
+export function parsePortEnv(raw: string | undefined, fallback: number): number {
+  const parsed = raw ? parseInt(raw, 10) : NaN;
+  return Number.isInteger(parsed) && parsed >= 0 && parsed <= 65535 ? parsed : fallback;
+}
+
+export interface ResolvedServerConfig {
+  registry: WikiRegistry;
+  port: number;
+  host: string;
+  sessionOptions: Partial<SessionRegistryOptions>;
+}
+
+/**
+ * Assembles createHTTPServer's non-OAuth config straight from env — the same
+ * parsing the CLI entry point uses, extracted so it's directly testable
+ * without binding a real socket.
+ */
+export function resolveServerConfig(env: Record<string, string | undefined>): ResolvedServerConfig {
+  return {
+    registry: WikiRegistry.fromEnvironment(env),
+    port: parsePortEnv(env.MEDIAWIKI_MCP_PORT, 8009),
+    host: env.MEDIAWIKI_MCP_HOST || 'localhost',
+    sessionOptions: {
+      idleTtlMs: parsePositiveIntEnv(env.MEDIAWIKI_SESSION_IDLE_TTL_MS),
+      maxSessions: parsePositiveIntEnv(env.MEDIAWIKI_MAX_SESSIONS),
+    },
+  };
+}
+
+/** Builds and starts the HTTP server straight from env — the CLI entry point's real bootstrap path, exported so tests can exercise it directly. */
+export async function startServerFromEnv(env: Record<string, string | undefined>): Promise<Server> {
+  const { registry, port, host, sessionOptions } = resolveServerConfig(env);
+
+  if (isOAuthMode(env)) {
+    const config = loadOAuthConfig(env);
+    let store: TokenStore;
+    if (config.redisUrl) {
+      const { createClient } = await import('redis');
+      const redis = createClient({ url: config.redisUrl });
+      redis.on('error', (err) => console.error('Redis error:', err));
+      await redis.connect();
+      const { RedisTokenStore } = await import('./auth/redis-token-store.js');
+      store = new RedisTokenStore(redis, config.issuerHost);
+    } else {
+      console.warn(
+        'REDIS_URL not set — using in-memory broker state. Single instance only; ' +
+          'sessions are lost on restart and not shared across replicas. Set REDIS_URL for hosted deployments.'
+      );
+      const { InMemoryTokenStore } = await import('./auth/token-store.js');
+      store = new InMemoryTokenStore();
     }
-  })();
+    const entra = new EntraOIDCClient(
+      config.tenantId,
+      config.clientId,
+      config.clientSecret,
+      `${config.publicUrl}/callback`
+    );
+    return createHTTPServer(registry, port, host, { config, store, entra }, sessionOptions);
+  }
+
+  return createHTTPServer(registry, port, host, undefined, sessionOptions);
+}
+
+if (import.meta.url === `file://${process.argv[1]}`) {
+  void startServerFromEnv(process.env as Record<string, string | undefined>).catch((error) => {
+    console.error('Fatal error:', error);
+    process.exit(1);
+  });
 }
