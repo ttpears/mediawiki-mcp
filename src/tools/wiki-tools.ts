@@ -68,9 +68,17 @@ export function registerWikiTools(server: McpServer, orchestrator: WikiOrchestra
         };
       }
 
-      const lines = wikis.map((wiki) => {
+      // Verify real session state per wiki (not just configuration) so an
+      // expired or failed bot-password login is visible to the client.
+      const statuses = await Promise.all(wikis.map((wiki) => orchestrator.getAuthStatus(wiki.name)));
+
+      const lines = wikis.map((wiki, i) => {
         const isDefault = defaultWiki && wiki.name === defaultWiki.name ? ' (default)' : '';
-        const authStatus = wiki.username ? 'authenticated' : 'anonymous';
+        const auth = statuses[i];
+        const authStatus =
+          auth.status === 'authenticated' ? `authenticated as ${auth.user}`
+          : auth.status === 'anonymous' ? 'anonymous'
+          : `auth error: ${auth.detail}`;
         return `- ${wiki.name}${isDefault}: ${wiki.baseUrl} [${authStatus}]`;
       });
 

@@ -4,6 +4,29 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [Unreleased]
+
+### Fixed
+- **Bot-password session expiry made writes silently fail as anonymous** (#12).
+  `ActionClient.login()` ran once at startup and was never called again, so after
+  the wiki's session expiry (`$wgObjectCacheSessionExpiry`, default 1h) every
+  write went out unauthenticated while reads kept working. Writes now send
+  `assert=user` so an expired session fails with `assertuserfailed` instead of an
+  anonymous edit or a misleading group-rights error, and on an auth error the
+  client re-logs-in, refreshes the CSRF token, and retries the request once.
+- **`list-wikis` reported configuration, not session state.** It now verifies the
+  live session per wiki via `action=query&meta=userinfo` (re-establishing an
+  expired session when possible) and reports `authenticated as <user>`,
+  `anonymous`, or `auth error: <detail>`.
+- **Startup login failure silently downgraded a wiki to an anonymous client.**
+  The credentialed clients now stay registered, so reads keep working and the
+  next write re-attempts login instead of staying anonymous for the life of the
+  process.
+
+### Added
+- Regression tests pinning exact-name cookie replacement, so the separate
+  `<prefix>_session` and `<prefix>_BPsession` cookies are both retained.
+
 ## [2.4.0] - 2026-08-12
 
 ### Added

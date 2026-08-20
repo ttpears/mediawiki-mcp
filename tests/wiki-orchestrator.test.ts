@@ -35,6 +35,7 @@ vi.mock('../src/clients/action-client.js', () => {
     this.uploadFile = vi.fn();
     this.resolveTitle = vi.fn().mockResolvedValue(null);
     this.login = vi.fn().mockResolvedValue(undefined);
+    this.checkAuthStatus = vi.fn().mockResolvedValue({ authenticated: false });
     this.getCookies = vi.fn().mockReturnValue([]);
     this.getCsrfToken = vi.fn().mockResolvedValue('+\\');
     this.setBearerTokenProvider = vi.fn();
@@ -325,6 +326,105 @@ describe('WikiOrchestrator', () => {
       // Only Sales should remain (Dev was removed from registry)
       expect(result.results).toHaveLength(1);
       expect(result.results[0].wiki).toBe('Sales');
+    });
+  });
+
+  describe('initialize with failing login', () => {
+    it('keeps credentialed clients registered so writes can re-authenticate later', async () => {
+      const registry = createRegistry({
+        name: 'Sales',
+        baseUrl: 'https://sales.wiki.com',
+        username: 'bot',
+        password: 'pw',
+      });
+
+      (ActionClient as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(function (this: any) {
+        this.login = vi.fn().mockRejectedValue(new Error('wiki temporarily down'));
+        this.checkAuthStatus = vi.fn().mockResolvedValue({ authenticated: false });
+        this.getCookies = vi.fn().mockReturnValue([]);
+        this.getCsrfToken = vi.fn().mockResolvedValue('+\\');
+        this.setBearerTokenProvider = vi.fn();
+        this.deletePage = vi.fn().mockResolvedValue(undefined);
+      });
+
+      const consoleSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const orch = new WikiOrchestrator(registry);
+      await orch.initialize();
+      consoleSpy.mockRestore();
+
+      // The original credentialed client stays registered — no anonymous replacement
+      expect(ActionClient).toHaveBeenCalledTimes(1);
+      expect(ActionClient).toHaveBeenCalledWith('Sales', 'https://sales.wiki.com', 'bot', 'pw');
+
+      // The wiki is still usable
+      const result = await orch.deletePage('Old Page');
+      expect(result.wiki).toBe('Sales');
+    });
+  });
+
+  describe('getAuthStatus', () => {
+    it('reports authenticated with the live session user name', async () => {
+      const registry = createRegistry({
+        name: 'Sales',
+        baseUrl: 'https://sales.wiki.com',
+        username: 'bot',
+        password: 'pw',
+      });
+      const orch = await createOrchestrator(registry);
+
+      const salesAction = getActionMock(orch, 'Sales');
+      salesAction.checkAuthStatus.mockResolvedValue({ authenticated: true, userName: 'BotUser' });
+
+      const status = await orch.getAuthStatus('Sales');
+
+      expect(status).toEqual({ wiki: 'Sales', status: 'authenticated', user: 'BotUser' });
+    });
+
+    it('reports an error when credentials are configured but the session is anonymous', async () => {
+      const registry = createRegistry({
+        name: 'Sales',
+        baseUrl: 'https://sales.wiki.com',
+        username: 'bot',
+        password: 'pw',
+      });
+      const orch = await createOrchestrator(registry);
+
+      const salesAction = getActionMock(orch, 'Sales');
+      salesAction.checkAuthStatus.mockResolvedValue({ authenticated: false });
+
+      const status = await orch.getAuthStatus('Sales');
+
+      expect(status.status).toBe('error');
+      expect(status.detail).toBeTruthy();
+    });
+
+    it('reports anonymous without probing when no credentials are configured', async () => {
+      const registry = createRegistry({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });
+      const orch = await createOrchestrator(registry);
+
+      const salesAction = getActionMock(orch, 'Sales');
+      const status = await orch.getAuthStatus('Sales');
+
+      expect(status).toEqual({ wiki: 'Sales', status: 'anonymous' });
+      expect(salesAction.checkAuthStatus).not.toHaveBeenCalled();
+    });
+
+    it('reports an error when the status probe throws', async () => {
+      const registry = createRegistry({
+        name: 'Sales',
+        baseUrl: 'https://sales.wiki.com',
+        username: 'bot',
+        password: 'pw',
+      });
+      const orch = await createOrchestrator(registry);
+
+      const salesAction = getActionMock(orch, 'Sales');
+      salesAction.checkAuthStatus.mockRejectedValue(new Error('Login failed: Failed'));
+
+      const status = await orch.getAuthStatus('Sales');
+
+      expect(status.status).toBe('error');
+      expect(status.detail).toContain('Login failed');
     });
   });
 
