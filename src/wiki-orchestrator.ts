@@ -76,9 +76,10 @@ export class WikiOrchestrator {
         await this.addClientsForWiki(wiki);
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
-        warnings.push(`[${wiki.name}] Login failed (wiki will be available without auth): ${msg}`);
-        // Still register the clients so the wiki is usable for read operations
-        this.addClientsForWikiNoAuth(wiki);
+        // Clients stay registered with their credentials: reads keep working, and
+        // writes re-attempt login (ActionClient.withAuthRetry) instead of silently
+        // going out anonymous for the life of the process.
+        warnings.push(`[${wiki.name}] Login failed (will retry on write operations): ${msg}`);
       }
     }
     if (warnings.length > 0) {
@@ -102,17 +103,12 @@ export class WikiOrchestrator {
     rest.setCookieProvider(() => action.getCookies());
     rest.setCsrfTokenProvider(() => action.getCsrfToken());
 
+    // Register before logging in so a failed login still leaves a usable,
+    // credentialed client (login is retried lazily on writes).
+    this.clients.set(key, { config: wiki, rest, action });
+
     // Login if credentials are provided (no-op in bearer mode)
     await action.login();
-
-    this.clients.set(key, { config: wiki, rest, action });
-  }
-
-  private addClientsForWikiNoAuth(wiki: WikiConfig): void {
-    const key = wiki.name.toLowerCase();
-    const action = new ActionClient(wiki.name, wiki.baseUrl);
-    const rest = new RestClient(wiki.name, wiki.baseUrl);
-    this.clients.set(key, { config: wiki, rest, action });
   }
 
   removeClientsForWiki(name: string): void {
@@ -122,6 +118,41 @@ export class WikiOrchestrator {
 
   getRegistry(): WikiRegistry {
     return this.registry;
+  }
+
+  /**
+   * Report the wiki's real auth state, verified against the live session
+   * (action=query&meta=userinfo) rather than just configuration. Re-establishes
+   * an expired bot-password session as a side effect when possible.
+   */
+  async getAuthStatus(
+    wikiName?: string
+  ): Promise<{ wiki: string; status: 'authenticated' | 'anonymous' | 'error'; user?: string; detail?: string }> {
+    const clients = this.getClients(wikiName);
+    const name = clients.config.name;
+    const expectsAuth = !!clients.config.username || !!this.authProvider;
+
+    if (!expectsAuth) {
+      return { wiki: name, status: 'anonymous' };
+    }
+
+    try {
+      const check = await clients.action.checkAuthStatus();
+      if (check.authenticated) {
+        return { wiki: name, status: 'authenticated', user: check.userName };
+      }
+      return {
+        wiki: name,
+        status: 'error',
+        detail: 'credentials configured but session is anonymous',
+      };
+    } catch (err) {
+      return {
+        wiki: name,
+        status: 'error',
+        detail: err instanceof Error ? err.message : String(err),
+      };
+    }
   }
 
   private getClients(wikiName?: string): WikiClients {

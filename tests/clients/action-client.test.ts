@@ -480,6 +480,222 @@ describe('ActionClient', () => {
     });
   });
 
+  describe('session re-authentication', () => {
+    function createAuthedClient(): ActionClient {
+      const client = new ActionClient('testwiki', 'https://wiki.example.com', 'Bot@job', 'secret');
+      client.setRetryDelay(0);
+      return client;
+    }
+
+    it('re-authenticates and retries once when a write fails with an auth error', async () => {
+      mockAxiosInstance.request
+        // 1. CSRF token fetch (stale anonymous session)
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'stale-token' } } } })
+        // 2. edit rejected: session expired, request went out anonymous
+        .mockResolvedValueOnce({ data: { error: { code: 'assertuserfailed', info: 'Assertion that the user is logged in failed.' } } })
+        // 3. login token fetch
+        .mockResolvedValueOnce({ data: { query: { tokens: { logintoken: 'lt' } } } })
+        // 4. login succeeds
+        .mockResolvedValueOnce({ data: { login: { result: 'Success' } } })
+        // 5. fresh CSRF token
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'fresh-token' } } } })
+        // 6. retried edit succeeds
+        .mockResolvedValueOnce({ data: { edit: { result: 'Success', pageid: 1, title: 'Page' } } });
+
+      const client = createAuthedClient();
+      const result = await client.editPage('Page', { text: 'hello', summary: 'update' });
+
+      expect(result.result).toBe('Success');
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(6);
+
+      const loginCall = mockAxiosInstance.request.mock.calls[3][0];
+      expect(loginCall.data).toContain('action=login');
+
+      const retriedEdit = mockAxiosInstance.request.mock.calls[5][0];
+      expect(retriedEdit.data).toContain('token=fresh-token');
+    });
+
+    it('re-authenticates when a write fails with a group permission error', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'stale-token' } } } })
+        .mockResolvedValueOnce({ data: { error: { code: 'permissiondenied', info: 'The action you have requested is limited to users in the group: Users.' } } })
+        .mockResolvedValueOnce({ data: { query: { tokens: { logintoken: 'lt' } } } })
+        .mockResolvedValueOnce({ data: { login: { result: 'Success' } } })
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'fresh-token' } } } })
+        .mockResolvedValueOnce({ data: { edit: { result: 'Success', pageid: 1, title: 'Page' } } });
+
+      const client = createAuthedClient();
+      const result = await client.editPage('Page', { text: 'hello', summary: 'update' });
+
+      expect(result.result).toBe('Success');
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(6);
+    });
+
+    it('does not re-authenticate when the client has no credentials', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: '+\\' } } } })
+        .mockResolvedValueOnce({ data: { error: { code: 'permissiondenied', info: 'denied' } } });
+
+      const client = createClient();
+      await expect(client.editPage('Page', { text: 'hello' })).rejects.toThrow(MediaWikiApiError);
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(2);
+    });
+
+    it('retries at most once when the auth error persists after re-login', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'stale-token' } } } })
+        .mockResolvedValueOnce({ data: { error: { code: 'assertuserfailed', info: 'failed' } } })
+        .mockResolvedValueOnce({ data: { query: { tokens: { logintoken: 'lt' } } } })
+        .mockResolvedValueOnce({ data: { login: { result: 'Success' } } })
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'fresh-token' } } } })
+        .mockResolvedValueOnce({ data: { error: { code: 'assertuserfailed', info: 'still failed' } } });
+
+      const client = createAuthedClient();
+      await expect(client.editPage('Page', { text: 'hello' })).rejects.toThrow(MediaWikiApiError);
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(6);
+    });
+
+    it('does not re-authenticate on non-auth API errors', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'tok' } } } })
+        .mockResolvedValueOnce({ data: { error: { code: 'articleexists', info: 'The article already exists.' } } });
+
+      const client = createAuthedClient();
+      await expect(client.editPage('Page', { text: 'hello' })).rejects.toThrow(MediaWikiApiError);
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(2);
+    });
+
+    it('sends assert=user on writes when bot credentials are configured', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'tok' } } } })
+        .mockResolvedValueOnce({ data: { edit: { result: 'Success', pageid: 1, title: 'Page' } } });
+
+      const client = createAuthedClient();
+      await client.editPage('Page', { text: 'hello' });
+
+      const editCall = mockAxiosInstance.request.mock.calls[1][0];
+      expect(editCall.data).toContain('assert=user');
+    });
+
+    it('does not send assert=user on writes for anonymous clients', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: '+\\' } } } })
+        .mockResolvedValueOnce({ data: { edit: { result: 'Success', pageid: 1, title: 'Page' } } });
+
+      const client = createClient();
+      await client.editPage('Page', { text: 'hello' });
+
+      const editCall = mockAxiosInstance.request.mock.calls[1][0];
+      expect(editCall.data).not.toContain('assert=user');
+    });
+
+    it('sends assert=user on multipart uploads when bot credentials are configured', async () => {
+      mockAxiosInstance.request
+        .mockResolvedValueOnce({ data: { query: { tokens: { csrftoken: 'tok' } } } })
+        .mockResolvedValueOnce({ data: { upload: { result: 'Success', filename: 'Test.png' } } });
+
+      const client = createAuthedClient();
+      await client.uploadFile('Test.png', Buffer.from('img'), 'desc');
+
+      const uploadCall = mockAxiosInstance.request.mock.calls[1][0];
+      const body = uploadCall.data.getBuffer().toString();
+      expect(body).toContain('name="assert"');
+    });
+  });
+
+  describe('getUserInfo / checkAuthStatus', () => {
+    function createAuthedClient(): ActionClient {
+      const client = new ActionClient('testwiki', 'https://wiki.example.com', 'Bot@job', 'secret');
+      client.setRetryDelay(0);
+      return client;
+    }
+
+    it('getUserInfo reports the logged-in user', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: { query: { userinfo: { id: 5, name: 'BotUser' } } },
+      });
+
+      const client = createAuthedClient();
+      const info = await client.getUserInfo();
+
+      expect(info).toEqual({ id: 5, name: 'BotUser', anon: false });
+    });
+
+    it('getUserInfo reports an anonymous session', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: { query: { userinfo: { id: 0, name: '127.0.0.1', anon: true } } },
+      });
+
+      const client = createAuthedClient();
+      const info = await client.getUserInfo();
+
+      expect(info.anon).toBe(true);
+    });
+
+    it('checkAuthStatus re-logs-in when the session is anonymous but credentials exist', async () => {
+      mockAxiosInstance.request
+        // 1. userinfo: session expired, now anonymous
+        .mockResolvedValueOnce({ data: { query: { userinfo: { id: 0, name: '127.0.0.1', anon: true } } } })
+        // 2. login token
+        .mockResolvedValueOnce({ data: { query: { tokens: { logintoken: 'lt' } } } })
+        // 3. login success
+        .mockResolvedValueOnce({ data: { login: { result: 'Success' } } })
+        // 4. userinfo: authenticated again
+        .mockResolvedValueOnce({ data: { query: { userinfo: { id: 5, name: 'BotUser' } } } });
+
+      const client = createAuthedClient();
+      const status = await client.checkAuthStatus();
+
+      expect(status).toEqual({ authenticated: true, userName: 'BotUser' });
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(4);
+    });
+
+    it('checkAuthStatus does not attempt login without credentials', async () => {
+      mockAxiosInstance.request.mockResolvedValueOnce({
+        data: { query: { userinfo: { id: 0, name: '127.0.0.1', anon: true } } },
+      });
+
+      const client = createClient();
+      const status = await client.checkAuthStatus();
+
+      expect(status).toEqual({ authenticated: false });
+      expect(mockAxiosInstance.request).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('cookie handling', () => {
+    function getResponseInterceptor(): (response: any) => any {
+      const calls = mockAxiosInstance.interceptors.response.use.mock.calls;
+      return calls[calls.length - 1][0];
+    }
+
+    it('retains both the login session cookie and the bot-password session cookie', () => {
+      const client = createClient();
+      const onResponse = getResponseInterceptor();
+
+      onResponse({ headers: { 'set-cookie': ['wiki_session=abc; Path=/; HttpOnly'] } });
+      onResponse({ headers: { 'set-cookie': ['wiki_BPsession=def; Path=/; HttpOnly'] } });
+
+      expect(client.getCookies()).toEqual(
+        expect.arrayContaining(['wiki_session=abc', 'wiki_BPsession=def'])
+      );
+      expect(client.getCookies()).toHaveLength(2);
+    });
+
+    it('replaces a cookie only on an exact name match', () => {
+      const client = createClient();
+      const onResponse = getResponseInterceptor();
+
+      onResponse({ headers: { 'set-cookie': ['wiki_session=abc', 'wiki_BPsession=def'] } });
+      onResponse({ headers: { 'set-cookie': ['wiki_session=xyz'] } });
+
+      expect(client.getCookies()).toEqual(
+        expect.arrayContaining(['wiki_session=xyz', 'wiki_BPsession=def'])
+      );
+      expect(client.getCookies()).toHaveLength(2);
+    });
+  });
+
   describe('resolveTitle', () => {
     it('returns canonical page for an exact title', async () => {
       mockAxiosInstance.request.mockResolvedValueOnce({

@@ -11,6 +11,19 @@ import {
   MediaWikiApiError,
 } from '../types.js';
 
+/**
+ * MediaWiki API error codes that indicate the request went out without a valid
+ * user session (expired bot-password login, stale CSRF token, etc.). These are
+ * recoverable by logging in again, unlike genuine rights problems which will
+ * simply fail again on retry.
+ */
+const AUTH_ERROR_CODES = new Set([
+  'assertuserfailed',
+  'mustbeloggedin',
+  'permissiondenied',
+  'badtoken',
+]);
+
 export class ActionClient {
   private readonly client: AxiosInstance;
   private readonly wikiName: string;
@@ -121,6 +134,51 @@ export class ActionClient {
     this.loggedIn = true;
     // Clear cached CSRF token so it's fetched with the new session
     this.csrfToken = null;
+  }
+
+  private hasBotCredentials(): boolean {
+    return !!this.username && !!this.password && !this.bearerTokenProvider;
+  }
+
+  /** Discard the expired session state and log in again. */
+  private async refreshLogin(): Promise<void> {
+    this.loggedIn = false;
+    this.csrfToken = null;
+    await this.login();
+  }
+
+  private isAuthError(err: unknown): boolean {
+    if (!(err instanceof MediaWikiApiError) || !err.apiErrorCode) return false;
+    return AUTH_ERROR_CODES.has(err.apiErrorCode) || err.apiErrorCode.startsWith('badaccess');
+  }
+
+  /**
+   * Run a write operation; if it fails because the login session expired,
+   * re-authenticate and retry once. Bot-password sessions expire server-side
+   * ($wgObjectCacheSessionExpiry, default 1h), after which requests silently
+   * go out anonymous — see issue #12.
+   */
+  private async withAuthRetry<T>(fn: () => Promise<T>): Promise<T> {
+    try {
+      return await fn();
+    } catch (err) {
+      if (!this.hasBotCredentials() || !this.isAuthError(err)) {
+        throw err;
+      }
+      await this.refreshLogin();
+      return fn();
+    }
+  }
+
+  /**
+   * Extra params for write requests. With bot credentials, `assert=user` makes
+   * an expired session fail with `assertuserfailed` (recoverable, and honest)
+   * instead of performing an anonymous edit or a misleading rights error.
+   */
+  private writeParams(
+    params: Record<string, string | number | undefined>
+  ): Record<string, string | number | undefined> {
+    return this.hasBotCredentials() ? { ...params, assert: 'user' } : params;
   }
 
   /** Get current session cookies (for sharing with RestClient) */
@@ -458,24 +516,28 @@ export class ActionClient {
   }
 
   async deletePage(title: string, reason?: string): Promise<void> {
-    const token = await this.getCsrfToken();
+    await this.withAuthRetry(async () => {
+      const token = await this.getCsrfToken();
 
-    await this.request<{ delete: { title: string } }>('POST', {
-      action: 'delete',
-      title,
-      reason,
-      token,
+      return this.request<{ delete: { title: string } }>('POST', this.writeParams({
+        action: 'delete',
+        title,
+        reason,
+        token,
+      }));
     });
   }
 
   async undeletePage(title: string, reason?: string): Promise<void> {
-    const token = await this.getCsrfToken();
+    await this.withAuthRetry(async () => {
+      const token = await this.getCsrfToken();
 
-    await this.request<{ undelete: { title: string } }>('POST', {
-      action: 'undelete',
-      title,
-      reason,
-      token,
+      return this.request<{ undelete: { title: string } }>('POST', this.writeParams({
+        action: 'undelete',
+        title,
+        reason,
+        token,
+      }));
     });
   }
 
@@ -491,35 +553,37 @@ export class ActionClient {
       baseTimestamp?: string;
     }
   ): Promise<{ result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: boolean }> {
-    const token = await this.getCsrfToken();
+    const response = await this.withAuthRetry(async () => {
+      const token = await this.getCsrfToken();
 
-    const params: Record<string, string | number | undefined> = {
-      action: 'edit',
-      title,
-      token,
-      summary: opts.summary,
-      basetimestamp: opts.baseTimestamp,
-    };
+      const params: Record<string, string | number | undefined> = {
+        action: 'edit',
+        title,
+        token,
+        summary: opts.summary,
+        basetimestamp: opts.baseTimestamp,
+      };
 
-    if (opts.text !== undefined) {
-      params.text = opts.text;
-    }
-    if (opts.section !== undefined) {
-      params.section = opts.section === 'new' ? 'new' : opts.section;
-    }
-    if (opts.sectionTitle !== undefined) {
-      params.sectiontitle = opts.sectionTitle;
-    }
-    if (opts.appendText !== undefined) {
-      params.appendtext = opts.appendText;
-    }
-    if (opts.prependText !== undefined) {
-      params.prependtext = opts.prependText;
-    }
+      if (opts.text !== undefined) {
+        params.text = opts.text;
+      }
+      if (opts.section !== undefined) {
+        params.section = opts.section === 'new' ? 'new' : opts.section;
+      }
+      if (opts.sectionTitle !== undefined) {
+        params.sectiontitle = opts.sectionTitle;
+      }
+      if (opts.appendText !== undefined) {
+        params.appendtext = opts.appendText;
+      }
+      if (opts.prependText !== undefined) {
+        params.prependtext = opts.prependText;
+      }
 
-    const response = await this.request<{
-      edit: { result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: string };
-    }>('POST', params);
+      return this.request<{
+        edit: { result: string; pageid: number; title: string; newrevid?: number; newtimestamp?: string; nochange?: string };
+      }>('POST', this.writeParams(params));
+    });
 
     return {
       ...response.edit,
@@ -562,17 +626,19 @@ export class ActionClient {
     text: string,
     comment?: string
   ): Promise<{ result: string; filename: string }> {
-    const token = await this.getCsrfToken();
+    const response = await this.withAuthRetry(async () => {
+      const token = await this.getCsrfToken();
 
-    const response = await this.request<{
-      upload: { result: string; filename: string };
-    }>('POST', {
-      action: 'upload',
-      filename,
-      url,
-      text,
-      comment,
-      token,
+      return this.request<{
+        upload: { result: string; filename: string };
+      }>('POST', this.writeParams({
+        action: 'upload',
+        filename,
+        url,
+        text,
+        comment,
+        token,
+      }));
     });
 
     return response.upload;
@@ -584,22 +650,55 @@ export class ActionClient {
     text: string,
     comment?: string
   ): Promise<{ result: string; filename: string }> {
-    const token = await this.getCsrfToken();
+    const response = await this.withAuthRetry(async () => {
+      const token = await this.getCsrfToken();
 
-    const form = new FormData();
-    form.append('action', 'upload');
-    form.append('filename', filename);
-    form.append('text', text);
-    form.append('token', token);
-    if (comment) {
-      form.append('comment', comment);
-    }
-    form.append('file', fileContent, { filename });
+      const form = new FormData();
+      form.append('action', 'upload');
+      form.append('filename', filename);
+      form.append('text', text);
+      form.append('token', token);
+      if (comment) {
+        form.append('comment', comment);
+      }
+      form.append('file', fileContent, { filename });
 
-    const response = await this.request<{
-      upload: { result: string; filename: string };
-    }>('POST', {}, form);
+      return this.request<{
+        upload: { result: string; filename: string };
+      }>('POST', this.writeParams({}), form);
+    });
 
     return response.upload;
+  }
+
+  /** Report who the current session is authenticated as (anon=true if nobody). */
+  async getUserInfo(): Promise<{ id: number; name: string; anon: boolean }> {
+    const response = await this.request<{
+      query: { userinfo: { id: number; name: string; anon?: boolean } };
+    }>('GET', {
+      action: 'query',
+      meta: 'userinfo',
+    });
+
+    const info = response.query.userinfo;
+    return { id: info.id, name: info.name, anon: info.anon === true };
+  }
+
+  /**
+   * Verify the real session state against the wiki. If the session has gone
+   * anonymous but credentials exist, attempt to re-establish it (throws if the
+   * login itself fails).
+   */
+  async checkAuthStatus(): Promise<{ authenticated: boolean; userName?: string }> {
+    let info = await this.getUserInfo();
+
+    if (info.anon && this.hasBotCredentials()) {
+      await this.refreshLogin();
+      info = await this.getUserInfo();
+    }
+
+    return info.anon
+      ? { authenticated: false }
+      : { authenticated: true, userName: info.name };
   }
 }
