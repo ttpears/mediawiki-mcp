@@ -129,6 +129,62 @@ describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)'
     expect(res.status).toBe(404);
   });
 
+  it('POST reports 404 for an idled-out session id, so a client knows to re-initialize', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const sessionId = await initSession(server);
+    idleFor(TTL_MS + 1);
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('mcp-session-id', sessionId)
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    // Not 400: the MCP Streamable HTTP contract reserves 404 for a session id the
+    // server no longer recognizes, which is the client's cue to start a new session.
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe(-32001);
+  });
+
+  it('POST reports 404 for a session id the server has never seen', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('mcp-session-id', 'never-issued')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    expect(res.status).toBe(404);
+  });
+
+  it('POST still reports 400 when there is no session id and no initialize request', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    expect(res.status).toBe(400);
+  });
+
   it('rejects a new initialize request once the hard session cap is reached', async () => {
     server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
       idleTtlMs: 60_000,
