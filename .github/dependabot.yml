@@ -1,0 +1,29 @@
+# Actions in .github/workflows are pinned to commit SHAs. A SHA cannot go stale
+# on its own, which is the point, but it also never picks up a security fix --
+# so something has to propose the bumps. Dependabot rewrites both the SHA and
+# the trailing `# vX.Y.Z` comment together, which is the pairing that would
+# otherwise drift by hand.
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+
+  # Keeps the Dockerfile's node:NN-alpine base current. The runtime the image
+  # ships on is easy to forget -- it sat on Node 20 past its April 2026 EOL.
+  - package-ecosystem: docker
+    directory: "/"
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: npm
+    directory: "/"
+    schedule:
+      interval: weekly
+    groups:
+      dev-dependencies:
+        dependency-type: development
