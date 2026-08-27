@@ -4,7 +4,19 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
-## [Unreleased]
+## [2.5.0] - 2026-08-26
+
+### Changed
+- **The container image now binds every interface by default**
+  (`MEDIAWIKI_MCP_HOST=0.0.0.0`, set in the Dockerfile). Previously the image
+  fell back to the code default of `localhost`, which alpine resolves to `::1`
+  first, so an unconfigured container listened on IPv6 loopback only — the
+  published port reached nothing and the built-in `HEALTHCHECK` could never
+  pass, leaving the container permanently `unhealthy`. Deployments that already
+  set `MEDIAWIKI_MCP_HOST` are unaffected, and an explicit value still wins.
+  The stdio/CLI path is unchanged and still defaults to `localhost`.
+- Image base moved from `node:20-alpine` to `node:22-alpine`; Node 20 reached
+  end of life in April 2026.
 
 ### Fixed
 - **Bot-password session expiry made writes silently fail as anonymous** (#12).
@@ -97,6 +109,8 @@ semantic versioning.
   APIs, with bot-password auth, stdio and streamable-HTTP transports, search,
   categories, page history, files, and link tools.
 
+[2.5.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.5.0
+[2.4.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.4.0
 [2.3.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.3.0
 [2.2.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.2.0
 [2.1.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.1.0
