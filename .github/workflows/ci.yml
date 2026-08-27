@@ -23,6 +23,13 @@ jobs:
 
   # Per-PR preview image so a connector stack can be pointed at
   # ghcr.io/<owner>/mediawiki-mcp:branch-<slug> while validating.
+  #
+  # On a `pull_request` from a FORK, GitHub hands the job a read-only
+  # GITHUB_TOKEN and no secrets — the `permissions:` block below is a ceiling,
+  # not a floor, so `packages: write` is silently downgraded to `read` and the
+  # push dies with "denied: installation not allowed to Write organization
+  # package". Fork PRs therefore build the image (which still validates the
+  # Dockerfile) but skip the login and the push.
   docker-preview:
     needs: build
     if: github.event_name == 'pull_request'
@@ -30,25 +37,40 @@ jobs:
     permissions:
       contents: read
       packages: write
+    env:
+      CAN_PUSH: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
     steps:
       - uses: actions/checkout@v4
 
       - uses: docker/setup-buildx-action@v3
 
       - uses: docker/login-action@v3
+        if: env.CAN_PUSH == 'true'
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # HEAD_REF goes through the environment, not `${{ }}` interpolation into
+      # the script body: on a fork PR the branch name is attacker-controlled and
+      # git permits `"`, `$`, `(`, `)` and `;` in refs, so interpolating it here
+      # is a command injection. The `tr` filter sanitises the *output*, which is
+      # far too late to help.
       - name: Compute branch slug
         id: s
-        run: echo "slug=$(echo "${{ github.head_ref }}" | tr '/_' '-' | tr -cd 'a-zA-Z0-9-')" >> "$GITHUB_OUTPUT"
+        env:
+          HEAD_REF: ${{ github.head_ref }}
+        run: echo "slug=$(printf '%s' "$HEAD_REF" | tr '/_' '-' | tr -cd 'a-zA-Z0-9-')" >> "$GITHUB_OUTPUT"
+
+      - name: Note that a fork PR cannot publish a preview image
+        if: env.CAN_PUSH != 'true'
+        run: |
+          echo "::notice::Fork PR — building the image to validate the Dockerfile, but not pushing to GHCR (fork PRs get a read-only GITHUB_TOKEN). No preview tag will be published for this branch."
 
       - uses: docker/build-push-action@v6
         with:
           context: .
-          push: true
+          push: ${{ env.CAN_PUSH == 'true' }}
           tags: ghcr.io/${{ github.repository_owner }}/mediawiki-mcp:branch-${{ steps.s.outputs.slug }}
 
   tag:
