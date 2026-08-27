@@ -21,11 +21,12 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Node 22: `npm install -g npm@latest` below pulls npm 12.x, which
-          # requires Node >= 22.22 — on Node 20 it failed with EBADENGINE and
-          # aborted the npm publish + GitHub Release (the container image built
-          # in the separate docker job regardless).
-          node-version: 22
+          # Kept in lockstep with ci.yml and the Dockerfile base. Must stay
+          # >= 22.22: `npm install -g npm@latest` below pulls npm 12.x, and on
+          # Node 20 it failed with EBADENGINE and aborted the npm publish +
+          # GitHub Release (the container image built in the separate docker
+          # job regardless).
+          node-version: 24
           cache: npm
 
       - run: npm ci
