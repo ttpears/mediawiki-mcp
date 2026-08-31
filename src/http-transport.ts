@@ -190,6 +190,22 @@ export async function createHTTPServer(
       return;
     }
 
+    // The request carried a session id we don't recognize — it expired, was
+    // deleted, or belongs to another replica. Streamable HTTP reserves 404 for
+    // exactly this, and that status is the client's cue to open a new session;
+    // answering 400 here reads as "your request is malformed" and leaves a client
+    // whose session merely idled out (30 min by default) with no way to recover.
+    // Matches the SDK's own transport, which returns 404 / -32001 "Session not
+    // found" for an unknown id and reserves 400 for a *missing* one.
+    if (sessionId) {
+      res.status(404).json({
+        jsonrpc: '2.0',
+        error: { code: -32001, message: 'Session not found' },
+        id: null,
+      });
+      return;
+    }
+
     res.status(400).json({
       jsonrpc: '2.0',
       error: { code: -32000, message: 'Bad request: missing or invalid session' },

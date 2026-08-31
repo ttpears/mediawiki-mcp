@@ -1,4 +1,4 @@
-import { describe, it, expect, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
 import type { Server } from 'node:http';
 import request from 'supertest';
 import { createHTTPServer } from '../src/http-transport.js';
@@ -33,25 +33,53 @@ async function initSession(server: Server): Promise<string> {
   return res.headers['mcp-session-id'] as string;
 }
 
-const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+/**
+ * Idle age is measured with `Date.now()` in SessionRegistry, so faking *only* Date
+ * puts expiry entirely under the test's control while leaving real timers, sockets
+ * and the supertest round-trip untouched. Nothing here races the machine: the real
+ * wall-clock cost of a request contributes exactly zero to a session's idle age.
+ *
+ * These tests used to sleep for real against a 60-120ms TTL, which left ~50ms of
+ * headroom for the whole HTTP round-trip. Under full-suite parallel load the
+ * initialize response alone took 150-290ms after the session was registered, so the
+ * session was already idle-expired before the first keep-alive POST landed and the
+ * suite failed ~1 run in 5. See issue #11.
+ */
+const TTL_MS = 1_000;
 
 describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)', () => {
   let server: Server | undefined;
+  let clock = 0;
+
+  /** Ages every session by `ms` without spending any real time. */
+  function idleFor(ms: number): void {
+    clock += ms;
+    vi.setSystemTime(clock);
+  }
+
+  beforeEach(() => {
+    clock = Date.now();
+    // Date only — real setTimeout/setInterval keep running so express, node's http
+    // server and supertest all behave normally.
+    vi.useFakeTimers({ toFake: ['Date'] });
+    vi.setSystemTime(clock);
+  });
 
   afterEach(() => {
+    vi.useRealTimers();
     server?.close();
     server = undefined;
   });
 
   it('GET reports 404 once a session has idled past the TTL, same as a fresh unknown id', async () => {
     server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
-      idleTtlMs: 60,
+      idleTtlMs: TTL_MS,
       maxSessions: 10,
       sweepIntervalMs: 100_000, // sweep parked far out; only the lazy-expiry backstop can catch this
     });
 
     const sessionId = await initSession(server);
-    await wait(150);
+    idleFor(TTL_MS + 1);
 
     const res = await request(server).get('/mcp').set('mcp-session-id', sessionId);
     expect(res.status).toBe(404);
@@ -59,13 +87,13 @@ describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)'
 
   it('DELETE reports 404 once a session has idled past the TTL, same as GET', async () => {
     server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
-      idleTtlMs: 60,
+      idleTtlMs: TTL_MS,
       maxSessions: 10,
       sweepIntervalMs: 100_000,
     });
 
     const sessionId = await initSession(server);
-    await wait(150);
+    idleFor(TTL_MS + 1);
 
     const res = await request(server).delete('/mcp').set('mcp-session-id', sessionId);
     expect(res.status).toBe(404);
@@ -73,7 +101,7 @@ describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)'
 
   it('repeated POST activity touches the session so it survives past a single idle-TTL window', async () => {
     server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
-      idleTtlMs: 120,
+      idleTtlMs: TTL_MS,
       maxSessions: 10,
       sweepIntervalMs: 100_000,
     });
@@ -82,8 +110,9 @@ describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)'
 
     // Each gap is well under the TTL, so touching on every request must keep it alive
     // even though the cumulative elapsed time exceeds the TTL several times over.
+    const gap = Math.floor(TTL_MS * 0.75);
     for (let i = 0; i < 3; i++) {
-      await wait(70);
+      idleFor(gap);
       const res = await request(server)
         .post('/mcp')
         .set('mcp-session-id', sessionId)
@@ -92,11 +121,68 @@ describe('HTTP transport session idle TTL / capacity (POST, GET, DELETE parity)'
         .send(pingBody(i + 2));
       expect(res.status).toBe(200);
     }
+    expect(gap * 3).toBeGreaterThan(TTL_MS); // the point of the test: cumulative age outruns the TTL
 
     // Now stop touching it and let it idle out for real.
-    await wait(200);
+    idleFor(TTL_MS + 1);
     const res = await request(server).get('/mcp').set('mcp-session-id', sessionId);
     expect(res.status).toBe(404);
+  });
+
+  it('POST reports 404 for an idled-out session id, so a client knows to re-initialize', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const sessionId = await initSession(server);
+    idleFor(TTL_MS + 1);
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('mcp-session-id', sessionId)
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    // Not 400: the MCP Streamable HTTP contract reserves 404 for a session id the
+    // server no longer recognizes, which is the client's cue to start a new session.
+    expect(res.status).toBe(404);
+    expect(res.body.error.code).toBe(-32001);
+  });
+
+  it('POST reports 404 for a session id the server has never seen', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('mcp-session-id', 'never-issued')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    expect(res.status).toBe(404);
+  });
+
+  it('POST still reports 400 when there is no session id and no initialize request', async () => {
+    server = await createHTTPServer(registry(), 0, '127.0.0.1', undefined, {
+      idleTtlMs: TTL_MS,
+      maxSessions: 10,
+      sweepIntervalMs: 100_000,
+    });
+
+    const res = await request(server)
+      .post('/mcp')
+      .set('Accept', 'application/json, text/event-stream')
+      .set('Content-Type', 'application/json')
+      .send(pingBody(2));
+
+    expect(res.status).toBe(400);
   });
 
   it('rejects a new initialize request once the hard session cap is reached', async () => {
