@@ -2,6 +2,8 @@
 
 A Model Context Protocol (MCP) server for MediaWiki instances with multi-wiki support. Uses the modern REST API (MediaWiki 1.42+) and Action API for full read/write access across multiple named wikis.
 
+Field notes: [MediaWiki MCP: reads worked after login expired](https://hackyourworld.com/mediawiki-mcp-login-expired-docker-port/) covers the expired bot-password session and loopback-only container listener failures behind the current authentication and deployment checks.
+
 ## Features
 
 - **Multi-Wiki Support**: Register named wikis, fan-out searches across all of them
