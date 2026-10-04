@@ -17,6 +17,8 @@ export interface SessionRegistryOptions {
   maxSessions: number;
   /** How often the periodic sweep checks for idle sessions. */
   sweepIntervalMs?: number;
+  /** Called after an idle-expired session is evicted. */
+  onEvict?: (id: string) => void;
 }
 
 export const DEFAULT_IDLE_TTL_MS = 30 * 60 * 1000;
@@ -39,8 +41,10 @@ export class SessionRegistry {
   private readonly maxSessions: number;
   private readonly sweepIntervalMs: number;
   private sweepTimer: NodeJS.Timeout | undefined;
+  private readonly onEvict?: (id: string) => void;
 
   constructor(options: SessionRegistryOptions) {
+    this.onEvict = options.onEvict;
     this.idleTtlMs = options.idleTtlMs;
     this.maxSessions = options.maxSessions;
     this.sweepIntervalMs = options.sweepIntervalMs ?? DEFAULT_SWEEP_INTERVAL_MS;
@@ -90,6 +94,7 @@ export class SessionRegistry {
     // to fix.
     this.entries.delete(id);
     void entry.session.transport.close().catch(() => {});
+    this.onEvict?.(id);
   }
 
   /** Reclaims every idle-expired session. Runs on the periodic timer; safe to call directly. */
