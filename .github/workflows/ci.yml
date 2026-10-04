@@ -13,11 +13,14 @@ jobs:
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
-          # Matches the runtime release.yml publishes on. Was 20, which went
-          # EOL in April 2026. package.json declares `engines: node >=18`, but
-          # only this one version is exercised — a matrix would rename the job
-          # to `build (22)` and break the `build` required status check on main.
-          node-version: 22
+          # Matches the runtime release.yml publishes on and the Dockerfile
+          # base, deliberately kept in lockstep so the shipped container never
+          # runs a Node nothing tests against. 24 is the Active LTS line; 22
+          # entered Maintenance in Oct 2025 and 26 is not LTS until Oct 2026.
+          # package.json declares `engines: node >=18`, but only this one
+          # version is exercised — a matrix would rename the job to
+          # `build (24)` and break the `build` required status check on main.
+          node-version: 24
           cache: npm
 
       - run: npm ci
