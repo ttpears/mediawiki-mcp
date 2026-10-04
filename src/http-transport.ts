@@ -61,11 +61,35 @@ export async function createHTTPServer(
 
   app.use(express.json());
 
-  const sessions = new SessionRegistry({
+  // A session id is bearer-equivalent, so logs carry only a prefix.
+  const shortSid = (sid: string): string => `${sid.slice(0, 8)}...`;
+
+  const sessions: SessionRegistry = new SessionRegistry({
     idleTtlMs: sessionOptions?.idleTtlMs ?? DEFAULT_IDLE_TTL_MS,
     maxSessions: sessionOptions?.maxSessions ?? DEFAULT_MAX_SESSIONS,
     sweepIntervalMs: sessionOptions?.sweepIntervalMs,
+    onEvict: (id) => console.log(`[session] expired ${shortSid(id)} (idle) active=${sessions.size}`),
   });
+
+  // MCP spec, Session Management: a request with an Mcp-Session-Id the server no
+  // longer knows MUST get 404, the only signal that makes a client re-initialize.
+  // 400 is reserved for a non-initialize request that carries no session id.
+  function sessionNotFound(res: express.Response, sid: string): void {
+    console.log(`[session] not found ${shortSid(sid)} -> 404 active=${sessions.size}`);
+    res.status(404).json({
+      jsonrpc: '2.0',
+      error: { code: -32001, message: 'Session not found' },
+      id: null,
+    });
+  }
+
+  function missingSession(res: express.Response): void {
+    res.status(400).json({
+      jsonrpc: '2.0',
+      error: { code: -32000, message: 'Bad request: missing session id' },
+      id: null,
+    });
+  }
   sessions.startSweep();
 
   // OAuth broker mode: mount auth-server endpoints and protect /mcp with bearer auth.
@@ -169,12 +193,13 @@ export async function createHTTPServer(
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
           sessions.set(id, { transport, server, context, sub });
+          console.log(`[session] init ${shortSid(id)} user=${context.sessionUser ?? '-'} write=${context.canWrite !== false} active=${sessions.size}`);
         },
       });
 
       transport.onclose = () => {
-        if (transport.sessionId) {
-          sessions.delete(transport.sessionId);
+        if (transport.sessionId && sessions.delete(transport.sessionId)) {
+          console.log(`[session] closed ${shortSid(transport.sessionId)} active=${sessions.size}`);
         }
       };
 
@@ -190,48 +215,40 @@ export async function createHTTPServer(
       return;
     }
 
-    // The request carried a session id we don't recognize — it expired, was
-    // deleted, or belongs to another replica. Streamable HTTP reserves 404 for
-    // exactly this, and that status is the client's cue to open a new session;
-    // answering 400 here reads as "your request is malformed" and leaves a client
-    // whose session merely idled out (30 min by default) with no way to recover.
-    // Matches the SDK's own transport, which returns 404 / -32001 "Session not
-    // found" for an unknown id and reserves 400 for a *missing* one.
     if (sessionId) {
-      res.status(404).json({
-        jsonrpc: '2.0',
-        error: { code: -32001, message: 'Session not found' },
-        id: null,
-      });
+      sessionNotFound(res, sessionId);
       return;
     }
-
-    res.status(400).json({
-      jsonrpc: '2.0',
-      error: { code: -32000, message: 'Bad request: missing or invalid session' },
-      id: null,
-    });
+    missingSession(res);
   });
 
   // GET — optional SSE stream for server-initiated notifications
   app.get('/mcp', async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'] as string;
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId) {
+      missingSession(res);
+      return;
+    }
     const session = sessions.get(sessionId);
     if (session) {
       await session.transport.handleRequest(req, res);
     } else {
-      res.status(404).json({ error: 'Session not found' });
+      sessionNotFound(res, sessionId);
     }
   });
 
   // DELETE — session termination
   app.delete('/mcp', async (req, res) => {
-    const sessionId = req.headers['mcp-session-id'] as string;
+    const sessionId = req.headers['mcp-session-id'] as string | undefined;
+    if (!sessionId) {
+      missingSession(res);
+      return;
+    }
     const session = sessions.get(sessionId);
     if (session) {
       await session.transport.handleRequest(req, res);
     } else {
-      res.status(404).json({ error: 'Session not found' });
+      sessionNotFound(res, sessionId);
     }
   });
 
