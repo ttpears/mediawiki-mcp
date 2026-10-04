@@ -4,6 +4,24 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.5.1] - 2026-10-04
+
+### Fixed
+- **An expired or unknown session answered 400, so clients never recovered.**
+  Sessions live in memory and are reclaimed after 30 minutes idle (and on every
+  restart). A request still carrying the old `Mcp-Session-Id` fell through to
+  `400 Bad request: missing or invalid session`. The MCP spec (Session
+  Management) requires `404` for a session the server no longer knows, and 404 is
+  the only response that tells a client to re-initialize, so clients kept
+  retrying the dead session until someone reconnected by hand. POST, GET and
+  DELETE now answer `404` with JSON-RPC `-32001 Session not found`, matching the
+  MCP SDK. A request with no session id that isn't `initialize` still gets `400`.
+
+### Added
+- Session lifecycle logging: init (with user and write access), close, idle
+  expiry and not-found, each with the live session count. Only an 8-character
+  session-id prefix is logged, since a session id is bearer-equivalent.
+
 ## [2.5.0] - 2026-08-26
 
 ### Changed
@@ -109,6 +127,7 @@ semantic versioning.
   APIs, with bot-password auth, stdio and streamable-HTTP transports, search,
   categories, page history, files, and link tools.
 
+[2.5.1]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.5.1
 [2.5.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.5.0
 [2.4.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.4.0
 [2.3.0]: https://github.com/ttpears/mediawiki-mcp/releases/tag/v2.3.0
