@@ -138,7 +138,15 @@ export async function createHTTPServer(
     return { context: { orchestrator, sessionUser: rawUser?.trim() || undefined } };
   }
 
-  app.post('/mcp', async (req, res) => {
+  // Express 4 does not forward rejected async handlers to error middleware.
+  // Keep this adapter while both Express 4 and 5 are supported.
+  const asyncRoute = (
+    handler: (req: express.Request, res: express.Response) => Promise<void>
+  ): express.RequestHandler => (req, res, next) => {
+    void handler(req, res).catch(next);
+  };
+
+  app.post('/mcp', asyncRoute(async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Existing session — route to its transport
@@ -220,10 +228,10 @@ export async function createHTTPServer(
       return;
     }
     missingSession(res);
-  });
+  }));
 
   // GET — optional SSE stream for server-initiated notifications
-  app.get('/mcp', async (req, res) => {
+  app.get('/mcp', asyncRoute(async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId) {
       missingSession(res);
@@ -235,10 +243,10 @@ export async function createHTTPServer(
     } else {
       sessionNotFound(res, sessionId);
     }
-  });
+  }));
 
   // DELETE — session termination
-  app.delete('/mcp', async (req, res) => {
+  app.delete('/mcp', asyncRoute(async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
     if (!sessionId) {
       missingSession(res);
@@ -250,7 +258,30 @@ export async function createHTTPServer(
     } else {
       sessionNotFound(res, sessionId);
     }
-  });
+  }));
+
+  // Preserve OAuth endpoint responses; only MCP errors use JSON-RPC envelopes.
+  const mcpErrorHandler: express.ErrorRequestHandler = (err, req, res, next) => {
+    if (res.headersSent) {
+      // An SSE response cannot be replaced. Express closes the failed stream.
+      next(err);
+      return;
+    }
+    // Body-parser errors already carry a client-error status. Do not turn invalid
+    // JSON or an oversized body into a server failure or expose error details.
+    const status = err?.status === 400 || err?.status === 413 ? err.status : 500;
+    const parseError = err?.type === 'entity.parse.failed';
+    const id = req.body?.id;
+    res.status(status).json({
+      jsonrpc: '2.0',
+      error: {
+        code: parseError ? -32700 : status === 500 ? -32603 : -32600,
+        message: parseError ? 'Parse error' : status === 413 ? 'Request body too large' : status === 400 ? 'Invalid request' : 'Internal error',
+      },
+      id: typeof id === 'string' || typeof id === 'number' ? id : null,
+    });
+  };
+  app.use('/mcp', mcpErrorHandler);
 
   return new Promise<Server>((resolve) => {
     const server = app.listen(port, host, () => {
