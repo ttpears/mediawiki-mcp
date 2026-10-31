@@ -2,6 +2,18 @@ import { describe, it, expect } from 'vitest';
 import { WikiRegistry } from '../src/wiki-registry.js';
 
 describe('WikiRegistry', () => {
+  it('clones configuration and its selected default without sharing mutable wiki objects', () => {
+    const original = new WikiRegistry();
+    original.addWiki({ name: 'First', baseUrl: 'https://first.example' });
+    original.addWiki({ name: 'Other', baseUrl: 'https://other.example', username: 'bot', password: 'fixture' });
+    original.setDefault('Other');
+    const copy = original.clone();
+    expect(copy.getDefaultWiki()?.name).toBe('Other');
+    copy.getWiki('Other')!.baseUrl = 'https://changed.example';
+    copy.removeWiki('First');
+    expect(original.getWiki('Other')?.baseUrl).toBe('https://other.example');
+    expect(original.getAllWikis()).toHaveLength(2);
+  });
   it('adds a wiki and retrieves it', () => {
     const reg = new WikiRegistry();
     reg.addWiki({ name: 'Sales', baseUrl: 'https://sales.wiki.com' });

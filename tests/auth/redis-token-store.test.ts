@@ -68,4 +68,14 @@ describe('RedisTokenStore', () => {
     await store.saveClient(client);
     expect(ttls.get('mediawiki-mcp.example.com:client:c1')).toBe(90 * 24 * 60 * 60);
   });
+
+  it('never retains a rotated refresh beyond its original authorization deadline', async () => {
+    const { redis, ttls } = fakeRedis();
+    const store = new RedisTokenStore(redis, PREFIX);
+    await store.saveRefresh({ token: 'rt', sub: 'u', username: 'u', canWrite: true, clientId: 'c', authExpiresAt: Date.now() + 30000 });
+    expect(ttls.get(`${PREFIX}:refresh:rt`)).toBeLessThanOrEqual(30);
+    expect((await store.peekRefresh('rt'))?.clientId).toBe('c');
+    expect((await store.takeRefresh('rt'))?.clientId).toBe('c');
+    expect(await store.peekRefresh('rt')).toBeUndefined();
+  });
 });

@@ -1,26 +1,11 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { z } from 'zod';
-import axios from 'axios';
 import { WikiOrchestrator } from '../wiki-orchestrator.js';
 import { SessionContext, isWriteAllowed, WRITE_FORBIDDEN_RESULT } from './index.js';
 import { attributeSummary } from './page-tools.js';
-import { VERSION } from '../version.js';
+import { downloadInlineImage, imageOrigins } from '../clients/image-download.js';
 
 const IMAGE_MEDIATYPES = new Set(['BITMAP', 'DRAWING']);
-const MIME_MAP: Record<string, string> = {
-  BITMAP: 'image/png',   // fallback; prefer from URL extension
-  DRAWING: 'image/svg+xml',
-};
-
-function mimeFromUrl(url: string, mediatype: string): string {
-  const ext = url.split('.').pop()?.toLowerCase();
-  const extMap: Record<string, string> = {
-    png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg',
-    gif: 'image/gif', svg: 'image/svg+xml', webp: 'image/webp',
-  };
-  return extMap[ext ?? ''] ?? MIME_MAP[mediatype] ?? 'application/octet-stream';
-}
-
 export function registerFileTools(server: McpServer, context: SessionContext): void {
   const orchestrator = context.orchestrator;
   const hasSessionUser = !!context.sessionUser;
@@ -76,15 +61,12 @@ export function registerFileTools(server: McpServer, context: SessionContext): v
       // For image files, fetch and return the image data inline
       if (IMAGE_MEDIATYPES.has(file.original.mediatype)) {
         try {
-          const imgUrl = file.preferred.url;
-          const resp = await axios.get(imgUrl, {
-            responseType: 'arraybuffer',
-            timeout: 15000,
-            headers: { 'User-Agent': `MediaWiki-MCP/${VERSION}` },
-          });
-          const base64 = Buffer.from(resp.data).toString('base64');
-          const mimeType = mimeFromUrl(imgUrl, file.original.mediatype);
-          content.push({ type: 'image' as const, data: base64, mimeType });
+          const allowedOrigins = imageOrigins(
+            orchestrator.getRegistry().getAllWikis().map(wiki => wiki.baseUrl),
+            process.env.MEDIAWIKI_IMAGE_ALLOWED_ORIGINS
+          );
+          const image = await downloadInlineImage(file.preferred.url, allowedOrigins);
+          content.push({ type: 'image' as const, ...image });
         } catch {
           // Image fetch failed — still return metadata
           const first = content[0];

@@ -48,6 +48,14 @@ export class WikiRegistry {
     return Array.from(this.wikis.values());
   }
 
+  /** Give an HTTP session its own configuration, including its default wiki. */
+  clone(): WikiRegistry {
+    const copy = new WikiRegistry();
+    for (const wiki of this.wikis.values()) copy.addWiki({ ...wiki });
+    if (this.defaultName) copy.setDefault(this.defaultName);
+    return copy;
+  }
+
   resolveWiki(name?: string): WikiConfig {
     if (name !== undefined) {
       const wiki = this.getWiki(name);

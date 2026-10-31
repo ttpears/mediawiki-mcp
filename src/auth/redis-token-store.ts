@@ -15,7 +15,8 @@ const NINETY_DAYS = 90 * 24 * 60 * 60;
 /**
  * Redis-backed broker state for the shared swarm Redis. Keys are namespaced by the
  * issuer host so one Redis serves every connector without collision. Pending auth
- * and authorization codes are short-lived; refresh tokens live ~a month; DCR
+ * and authorization codes are short-lived; refresh tokens cannot outlive the
+ * original authorization deadline (one hour for newly issued grants); DCR
  * client registrations expire after 90 days. No upstream (Entra) tokens or wiki
  * credentials are ever stored — only broker session state, all with TTLs.
  */
@@ -60,10 +61,17 @@ export class RedisTokenStore implements TokenStore {
   }
 
   async saveRefresh(r: RefreshRecord): Promise<void> {
-    await this.redis.set(this.key('refresh', r.token), JSON.stringify(r), { EX: THIRTY_ONE_DAYS });
+    const ttl = r.authExpiresAt === undefined ? THIRTY_ONE_DAYS
+      : Math.max(1, Math.min(THIRTY_ONE_DAYS, Math.ceil((r.authExpiresAt - Date.now()) / 1000)));
+    await this.redis.set(this.key('refresh', r.token), JSON.stringify(r), { EX: ttl });
   }
   async takeRefresh(token: string): Promise<RefreshRecord | undefined> {
     const raw = await this.redis.getDel(this.key('refresh', token));
+    return raw ? (JSON.parse(raw) as RefreshRecord) : undefined;
+  }
+
+  async peekRefresh(token: string): Promise<RefreshRecord | undefined> {
+    const raw = await this.redis.get(this.key('refresh', token));
     return raw ? (JSON.parse(raw) as RefreshRecord) : undefined;
   }
 }

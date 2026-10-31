@@ -85,7 +85,7 @@ describe('BrokerOAuthProvider', () => {
 
   it('rotates refresh tokens and preserves write capability', async () => {
     const { provider, store } = makeProvider();
-    await store.saveRefresh({ token: 'old-rt', sub: 'user-7', username: 'bob', canWrite: true, clientId: 'c1' });
+    await store.saveRefresh({ token: 'old-rt', sub: 'user-7', username: 'bob', canWrite: true, clientId: 'c1', authExpiresAt: Date.now() + 3600000 });
     const issued = await provider.exchangeRefreshToken(CLIENT, 'old-rt');
     expect(issued.refresh_token).toBeTruthy();
     expect(issued.refresh_token).not.toBe('old-rt');

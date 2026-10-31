@@ -306,6 +306,36 @@ Add a custom connector pointing at `https://<your-public-url>/mcp`. Claude disco
 the auth server via `/.well-known/oauth-protected-resource/mcp`, registers itself
 via DCR, and signs the user in through Entra. One sign-in covers the whole farm.
 
+## Security and trust boundaries
+
+Each HTTP session has its own wiki registry and default selection. In OAuth mode,
+wiki-management tools (`add-wiki`, `remove-wiki`, and `set-wiki`) are unavailable;
+the operator configures the wiki farm with environment variables. Pass `wiki`
+explicitly to select a configured wiki for an operation. Stdio and trusted
+LibreChat sessions retain their session-local wiki-management tools.
+
+OAuth authorization codes and refresh tokens are bound to their client.
+Authorization lasts at most **one hour after the Entra callback**, including all
+refresh rotations; sign in again to renew it and recheck roles. A role removal
+can therefore take up to that remaining hour to take effect. Tokens issued
+before 2.5.4 need a fresh sign-in when refreshed. MCP sessions also bind the user,
+client, and write permission: reconnect if those permissions change.
+
+Inline images returned by `get-file` may come only from configured wiki origins
+or exact additional origins approved by the operator:
+
+```bash
+MEDIAWIKI_IMAGE_ALLOWED_ORIGINS=https://images.example.com,https://cdn.example.com
+```
+
+This allowlist is a trust boundary: include only hosts you administer or trust,
+including any intentionally private image services. Image redirects must remain
+inside the allowed origins. Downloads use a 15-second total deadline, at most
+three redirects, a 5 MiB decoded-size limit, and supported image content types.
+Blocked, oversized, or unsupported images still return file metadata and URLs.
+Anonymous/header HTTP mode is intended for a private network; OAuth protects
+public deployments as described above.
+
 ## Tools
 
 All tools that accept a `wiki` parameter will use the default wiki when omitted. Search and listing tools fan out across all registered wikis when `wiki` is not specified.
@@ -390,7 +420,7 @@ verification across npm, Docker, and Claude Desktop.
 ## Upgrading and troubleshooting
 
 Use a versioned package or image for repeatable deployments. After a release is
-published, `npx -y mediawiki-mcp@2.5.3` selects that exact stdio package. Update the
+published, `npx -y mediawiki-mcp@2.5.4` selects that exact stdio package. Update the
 command in your MCP client and restart the server process; an existing process
 does not upgrade itself. The MCP `initialize` response reports the running
 version. Claude Desktop users install the new release's `.mcpb` asset.
@@ -404,7 +434,7 @@ curl --fail http://localhost:8009/health
 ```
 
 Deployments using the published image should pin
-`ghcr.io/ttpears/mediawiki-mcp:2.5.3`, pull it, and recreate their service instead
+`ghcr.io/ttpears/mediawiki-mcp:2.5.4`, pull it, and recreate their service instead
 of using the source-build command. Keep the previous version available for
 rollback. Version tags become available only after release approval and successful
 publication; a Git tag alone does not mean npm or the image has been published.

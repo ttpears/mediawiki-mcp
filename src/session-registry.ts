@@ -8,6 +8,8 @@ export interface Session {
   context: SessionContext;
   /** Wiki `sub` that initialized this session (OAuth mode only). */
   sub?: string;
+  /** OAuth client that initialized this session. */
+  clientId?: string;
 }
 
 export interface SessionRegistryOptions {
