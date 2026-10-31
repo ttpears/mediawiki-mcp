@@ -4,6 +4,17 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.5.3] - 2026-10-31
+
+### Documentation
+- Show explicit `.env` loading for local stdio and HTTP servers, explain bind
+  addresses and health checks, and distinguish source-built Compose deployments
+  from versioned published images.
+- Add upgrade and troubleshooting guidance, correct the tool catalog and
+  `update-page` parameters, and remove the outdated test count.
+- Document synchronized version bumps, validation, protected release approval,
+  verification of npm/GHCR/MCPB outputs, and recovery from partial publication.
+
 ## [2.5.2] - 2026-10-31
 
 ### Fixed

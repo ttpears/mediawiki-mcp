@@ -10,6 +10,9 @@ marked as the default when a client doesn't specify which wiki to use.
 
 ## Getting it running locally
 
+Use Node.js 24 LTS, matching CI and the published image. From a clean checkout,
+use `npm ci` to install the committed lockfile.
+
 **Don't point this at a production wiki while developing.** Stand up a
 throwaway local MediaWiki first. A minimal `docker-compose.yml`:
 
@@ -70,7 +73,7 @@ A couple of things that weren't obvious the first time through:
 Install and configure:
 
 ```bash
-npm install
+npm ci
 cp .env.example .env
 ```
 
@@ -125,6 +128,9 @@ Merging a change that bumps the version in `package.json` cuts a git tag,
 which kicks off the release workflow — but that workflow **pauses and waits
 for maintainer approval** before anything actually publishes to npm. A merge
 never ships anything on its own.
+
+Follow [docs/releasing.md](docs/releasing.md) for synchronized versions, validation,
+required release approval, and checks for every publication channel.
 
 ## Gotchas
 
