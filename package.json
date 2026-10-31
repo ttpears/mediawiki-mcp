@@ -1,6 +1,6 @@
 {
   "name": "mediawiki-mcp",
-  "version": "2.5.1",
+  "version": "2.5.2",
   "description": "MediaWiki MCP server with multi-wiki support and REST API",
   "type": "module",
   "main": "dist/index.js",
@@ -60,6 +60,6 @@
     "vitest": "^5.0.3"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   }
 }
