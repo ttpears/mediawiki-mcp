@@ -1,5 +1,7 @@
 # Releasing mediawiki-mcp
 
+[Documentation](README.md) · [Contributing](../CONTRIBUTING.md) · [Upgrade a deployment](operations.md#upgrade)
+
 The server ships as an npm package, a GHCR container, and a Claude Desktop MCPB
 bundle attached to a GitHub Release. The Claude Code plugin launches the npm
 package; its manifest version must match the package version.
@@ -79,7 +81,7 @@ docker buildx imagetools inspect ghcr.io/ttpears/mediawiki-mcp:2.5.4
 Check that the GitHub Release includes `mediawiki-mcp-2.5.4.mcpb`, both workflow
 jobs succeeded, the versioned image exists, and `latest` points to that image's
 digest. Updating registries does not restart deployed MCP clients or containers;
-follow the README's upgrade steps to roll out the release.
+follow the [deployment upgrade steps](operations.md#upgrade) to roll out the release.
 
 If one job fails, inspect its logs and check which artifacts were already
 published before retrying. npm versions are immutable: if npm succeeded but a
