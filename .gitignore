@@ -1,6 +1,11 @@
 node_modules/
 dist/
 .env
+.env.*
+!.env.example
+coverage/
+.test-env/
+mediawiki-mcp-*.tgz
 *.log
 npm-debug.log*
 yarn-debug.log*
@@ -17,5 +22,6 @@ yarn-error.log*
 dist-mcpb/
 *.mcpb
 
+# Local planning scratch
 docs/superpowers/
 docs/plans/

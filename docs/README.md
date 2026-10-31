@@ -27,5 +27,6 @@ first connection works.
 ## Develop and maintain
 
 - [Contributing](../CONTRIBUTING.md): local build, disposable MediaWiki, tests, and architecture.
+- [Testing](testing.md): unit coverage, disposable MediaWiki/Redis, and integration checks.
 - [Release guide](releasing.md): versions, validation, required approval, and publication checks.
 - [Changelog](../CHANGELOG.md): changes by version.

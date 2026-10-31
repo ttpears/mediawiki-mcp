@@ -52,7 +52,7 @@ has already been set; neither loads `.env`.
 
 ```bash
 npm run type-check
-npm test
+npm run test:coverage
 npm run build
 ```
 
@@ -69,63 +69,35 @@ stdio and HTTP. Connect a client, initialize, list tools, and perform a read aga
 a disposable wiki. Check read-only and writer behavior for OAuth changes. Use
 `npm run build:mcpb` when changing bundle inputs or release packaging.
 
-## Run a disposable MediaWiki
+## Test against disposable services
 
-In a separate development directory, create `compose.wiki.yaml`:
-
-```yaml
-services:
-  wiki-db:
-    image: mariadb:11.4
-    environment:
-      MARIADB_ROOT_PASSWORD: local-dev-only
-      MARIADB_DATABASE: mediawiki
-      MARIADB_USER: mediawiki
-      MARIADB_PASSWORD: local-dev-only
-    volumes:
-      - wiki-db:/var/lib/mysql
-  mediawiki:
-    image: mediawiki:lts
-    ports:
-      - "127.0.0.1:8080:80"
-    depends_on:
-      - wiki-db
-volumes:
-  wiki-db:
-```
-
-These credentials are for the disposable database. Start it:
+With Docker Engine and the Compose v2 plugin installed:
 
 ```bash
-docker compose -f compose.wiki.yaml up -d
+npm run test:integration
 ```
 
-Open `http://127.0.0.1:8080` and complete the MediaWiki installer:
+This builds the server, installs a private MediaWiki automatically, starts Redis,
+and exercises real bot-password authentication, reads, and writes through stdio
+and HTTP. It removes the services it created when the run finishes. No `.env`,
+browser installer, or existing wiki is required.
 
-| Installer field | Value |
-| --- | --- |
-| Database type | MySQL/MariaDB |
-| Database host | `wiki-db` |
-| Database name | `mediawiki` |
-| Database user | `mediawiki` |
-| Database password | `local-dev-only` |
-
-Choose a wiki name and test admin account. When the installer downloads
-`LocalSettings.php`, copy that file into the container. From the directory
-containing both your Compose file and the downloaded settings file:
+To keep the services running while developing:
 
 ```bash
-docker compose -f compose.wiki.yaml cp LocalSettings.php mediawiki:/var/www/html/LocalSettings.php
+npm run test:env:up
+npm run test:integration
+npm run test:env:logs
+npm run test:env:down
 ```
 
-Reload the wiki and create a [bot password](docs/configuration.md#bot-passwords)
-for the test account. Use the generated username/password in the repository's
-`.env`, with `MEDIAWIKI_BASE_URL=http://127.0.0.1:8080` when Node runs on the host.
-A connector running in another container needs an address reachable from that
-container instead of this loopback URL.
+The first command prints random loopback URLs. A test run reuses a manually
+started environment and leaves it running until `test:env:down`. All test data is
+disposable. See [Testing](docs/testing.md) for credentials, coverage, isolation,
+and troubleshooting.
 
-The database volume persists across container restarts. `LocalSettings.php` above
-was copied into the container; repeat that copy if you replace the container.
+Use `npm run clean` to remove generated build directories, coverage reports, and
+root-level versioned `.mcpb`/`.tgz` bundles. It keeps dependencies and `.env`.
 
 ## Where to make changes
 

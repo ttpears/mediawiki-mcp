@@ -21,7 +21,13 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "type-check": "tsc --noEmit",
-    "prepublishOnly": "npm run build && npm run test"
+    "prepublishOnly": "npm run build && npm run test",
+    "clean": "node scripts/clean.mjs",
+    "test:coverage": "vitest run --coverage",
+    "test:integration": "node scripts/test-environment.mjs test",
+    "test:env:up": "node scripts/test-environment.mjs up",
+    "test:env:down": "node scripts/test-environment.mjs down",
+    "test:env:logs": "node scripts/test-environment.mjs logs"
   },
   "keywords": [
     "mcp",
@@ -51,10 +57,10 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
-    "@types/diff": "^8.0.0",
     "@types/express": "^5.0.0",
     "@types/node": "^26.6.3",
     "@types/supertest": "^7.2.0",
+    "@vitest/coverage-v8": "^5.0.5",
     "supertest": "^7.2.2",
     "typescript": "^7.0.2",
     "vitest": "^5.0.3"
