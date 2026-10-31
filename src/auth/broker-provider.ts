@@ -4,9 +4,14 @@ import { OAuthServerProvider, AuthorizationParams } from '@modelcontextprotocol/
 import { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
 import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { TokenStore } from './token-store.js';
+import { InvalidGrantError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import { TokenStore, type AuthCodeRecord } from './token-store.js';
 import { EntraOIDCClient } from './entra-oidc.js';
 import { BrokerTokens } from './tokens.js';
+
+/** Refresh rotation must never extend the original Entra authorization. */
+export const AUTH_SESSION_TTL_MS = 60 * 60 * 1000;
+const AUTH_CODE_TTL_MS = 10 * 60 * 1000;
 
 function base64url(buf: Buffer): string {
   return buf.toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
@@ -78,7 +83,7 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
    */
   async handleUpstreamCallback(code: string, brokerState: string): Promise<{ redirectTo: string }> {
     const pending = await this.store.takePendingAuth(brokerState);
-    if (!pending) {
+    if (!pending || Date.now() - pending.createdAt >= AUTH_CODE_TTL_MS) {
       throw new Error('Unknown or expired authorization state');
     }
 
@@ -93,6 +98,8 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
       canWrite,
       clientId: pending.clientId,
       clientCodeChallenge: pending.clientCodeChallenge,
+      clientRedirectUri: pending.clientRedirectUri,
+      authExpiresAt: Date.now() + AUTH_SESSION_TTL_MS,
       createdAt: Date.now(),
     });
 
@@ -105,36 +112,54 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
   }
 
   async challengeForAuthorizationCode(
-    _client: OAuthClientInformationFull,
+    client: OAuthClientInformationFull,
     authorizationCode: string
   ): Promise<string> {
     const record = await this.store.peekAuthCode(authorizationCode);
-    if (!record) {
-      throw new Error('Invalid authorization code');
-    }
+    this.validateCode(record, client);
     return record.clientCodeChallenge;
   }
 
   async exchangeAuthorizationCode(
     client: OAuthClientInformationFull,
-    authorizationCode: string
+    authorizationCode: string,
+    _codeVerifier?: string,
+    redirectUri?: string
   ): Promise<OAuthTokens> {
-    const record = await this.store.takeAuthCode(authorizationCode);
-    if (!record) {
-      throw new Error('Invalid authorization code');
+    const preview = await this.store.peekAuthCode(authorizationCode);
+    this.validateCode(preview, client);
+    if (redirectUri !== undefined && redirectUri !== preview.clientRedirectUri) {
+      throw new InvalidGrantError('Invalid authorization code');
     }
-    return this.issueTokens(record.sub, record.username, record.canWrite, client.client_id);
+    const record = await this.store.takeAuthCode(authorizationCode);
+    this.validateCode(record, client);
+    return this.issueTokens(record.sub, record.username, record.canWrite, client.client_id, record.authExpiresAt!);
   }
 
   async exchangeRefreshToken(
     client: OAuthClientInformationFull,
     refreshToken: string
   ): Promise<OAuthTokens> {
-    const record = await this.store.takeRefresh(refreshToken);
-    if (!record) {
-      throw new Error('Invalid refresh token');
+    const preview = await this.store.peekRefresh(refreshToken);
+    if (!preview || preview.clientId !== client.client_id || !this.isCurrentAuthorization(preview.authExpiresAt)) {
+      throw new InvalidGrantError('Invalid or expired refresh token; sign in again');
     }
-    return this.issueTokens(record.sub, record.username, record.canWrite, client.client_id);
+    const record = await this.store.takeRefresh(refreshToken);
+    if (!record || record.clientId !== client.client_id || !this.isCurrentAuthorization(record.authExpiresAt)) {
+      throw new InvalidGrantError('Invalid or expired refresh token; sign in again');
+    }
+    return this.issueTokens(record.sub, record.username, record.canWrite, client.client_id, record.authExpiresAt!);
+  }
+
+  private isCurrentAuthorization(deadline: number | undefined): boolean {
+    return typeof deadline === 'number' && Number.isFinite(deadline) && deadline > Date.now();
+  }
+
+  private validateCode(record: AuthCodeRecord | undefined, client: OAuthClientInformationFull): asserts record is AuthCodeRecord {
+    if (!record || record.clientId !== client.client_id || !record.clientRedirectUri ||
+        Date.now() - record.createdAt >= AUTH_CODE_TTL_MS || !this.isCurrentAuthorization(record.authExpiresAt)) {
+      throw new InvalidGrantError('Invalid authorization code');
+    }
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
@@ -145,15 +170,18 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
     sub: string,
     username: string,
     canWrite: boolean,
-    clientId: string
+    clientId: string,
+    authExpiresAt: number
   ): Promise<OAuthTokens> {
-    const accessToken = await this.tokens.signAccessToken(sub, clientId, { username, canWrite });
+    const ttlSeconds = Math.min(3600, Math.floor((authExpiresAt - Date.now()) / 1000));
+    if (ttlSeconds <= 0) throw new InvalidGrantError('Authorization expired; sign in again');
+    const accessToken = await this.tokens.signAccessToken(sub, clientId, { username, canWrite }, ttlSeconds);
     const refreshToken = this.genId();
-    await this.store.saveRefresh({ token: refreshToken, sub, username, canWrite, clientId });
+    await this.store.saveRefresh({ token: refreshToken, sub, username, canWrite, clientId, authExpiresAt });
     return {
       access_token: accessToken,
       token_type: 'Bearer',
-      expires_in: 3600,
+      expires_in: ttlSeconds,
       refresh_token: refreshToken,
       scope: 'mediawiki',
     };

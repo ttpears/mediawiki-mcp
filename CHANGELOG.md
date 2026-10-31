@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.5.4] - 2026-10-31
+
+### Security
+- Isolate wiki registries and default selections per HTTP session. OAuth sessions
+  expose only the operator-configured wiki farm and cannot add or remove wikis.
+- Bind authorization codes and refresh tokens to their original OAuth client;
+  validate the original redirect URI when supplied at code redemption. Invalid
+  cross-client attempts do not consume the legitimate grant.
+- Limit an Entra authorization to one hour, including every refresh rotation and
+  its access tokens. Legacy refresh tokens require fresh sign-in. Expire and
+  bound in-memory OAuth state and apply the authorization deadline to Redis
+  refresh-token retention.
+- Check session user, OAuth client, and permissions on POST, GET, and DELETE.
+  Requests with changed permissions must reinitialize instead of reusing an old
+  session's write capability.
+- Restrict inline image requests and redirects to configured wiki origins or
+  `MEDIAWIKI_IMAGE_ALLOWED_ORIGINS`. Bound decoded downloads to 5 MiB and a
+  15-second total deadline; blocked images retain their metadata response.
+
+### Upgrade notes
+- Reconnect OAuth clients after upgrading. Reauthentication rechecks Entra roles
+  at least hourly; changes may take up to the remaining authorization lifetime.
+- Add trusted CDN origins explicitly if wiki images are hosted outside the wiki
+  origin. New image restrictions do not change wiki read/write API requests.
+
 ## [2.5.3] - 2026-10-31
 
 ### Documentation

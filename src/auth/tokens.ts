@@ -46,7 +46,16 @@ export class BrokerTokens {
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
-    const { payload } = await jwtVerify(token, this.key, { audience: this.audience });
+    const { payload } = await jwtVerify(token, this.key, {
+      audience: this.audience,
+      algorithms: ['HS256'],
+      requiredClaims: ['sub', 'exp', 'iat', 'client_id'],
+      maxTokenAge: '1h',
+    });
+    if (typeof payload.sub !== 'string' || !payload.sub ||
+        typeof payload.client_id !== 'string' || !payload.client_id) {
+      throw new Error('Invalid access token identity');
+    }
     return {
       token,
       clientId: (payload.client_id as string) ?? '',

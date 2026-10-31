@@ -16,7 +16,7 @@ import { BrokerOAuthProvider } from './auth/broker-provider.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
 import { resolveTrustProxy } from './trust-proxy.js';
-import { SessionRegistry, SessionRegistryOptions, DEFAULT_IDLE_TTL_MS, DEFAULT_MAX_SESSIONS } from './session-registry.js';
+import { SessionRegistry, SessionRegistryOptions, DEFAULT_IDLE_TTL_MS, DEFAULT_MAX_SESSIONS, type Session } from './session-registry.js';
 
 /** Dependencies that enable OAuth broker mode. When omitted, the server runs the
  *  unauthenticated header-based path used by LibreChat. */
@@ -127,12 +127,12 @@ export async function createHTTPServer(
       // are gated by the user's Entra role (canWrite).
       const username = (req.auth?.extra?.username as string | undefined) ?? sub;
       const canWrite = req.auth?.extra?.canWrite === true;
-      const orchestrator = new WikiOrchestrator(registry);
+      const orchestrator = new WikiOrchestrator(registry.clone());
       await orchestrator.initialize();
-      return { context: { orchestrator, sessionUser: username, canWrite }, sub };
+      return { context: { orchestrator, sessionUser: username, canWrite, canManageWikis: false }, sub };
     }
 
-    const orchestrator = new WikiOrchestrator(registry);
+    const orchestrator = new WikiOrchestrator(registry.clone());
     await orchestrator.initialize();
     const rawUser = req.headers['x-user-username'] as string | undefined;
     return { context: { orchestrator, sessionUser: rawUser?.trim() || undefined } };
@@ -146,24 +146,29 @@ export async function createHTTPServer(
     void handler(req, res).catch(next);
   };
 
+  function ownsSession(req: express.Request, res: express.Response, session: Session): boolean {
+    if (!oauth) return true;
+    const auth = req.auth;
+    if (!auth || auth.extra?.sub !== session.sub || auth.clientId !== session.clientId ||
+        (auth.extra?.canWrite === true) !== session.context.canWrite) {
+      res.status(403).json({
+        jsonrpc: '2.0',
+        error: { code: -32000, message: 'Session identity or permissions changed; reinitialize the MCP session' },
+        id: null,
+      });
+      return false;
+    }
+    return true;
+  }
+
   app.post('/mcp', asyncRoute(async (req, res) => {
     const sessionId = req.headers['mcp-session-id'] as string | undefined;
 
     // Existing session — route to its transport
     const session = sessionId ? sessions.get(sessionId) : undefined;
     if (session) {
-      if (oauth) {
-        // Reject if a different authenticated user reuses this session id.
-        const sub = req.auth?.extra?.sub as string | undefined;
-        if (session.sub && sub && session.sub !== sub) {
-          res.status(403).json({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Session does not belong to this user' },
-            id: null,
-          });
-          return;
-        }
-      } else {
+      if (!ownsSession(req, res, session)) return;
+      if (!oauth) {
         const rawUser = req.headers['x-user-username'] as string | undefined;
         if (rawUser?.trim()) {
           session.context.sessionUser = rawUser.trim();
@@ -200,7 +205,7 @@ export async function createHTTPServer(
       const transport = new StreamableHTTPServerTransport({
         sessionIdGenerator: () => randomUUID(),
         onsessioninitialized: (id) => {
-          sessions.set(id, { transport, server, context, sub });
+          sessions.set(id, { transport, server, context, sub, clientId: req.auth?.clientId });
           console.log(`[session] init ${shortSid(id)} user=${context.sessionUser ?? '-'} write=${context.canWrite !== false} active=${sessions.size}`);
         },
       });
@@ -239,6 +244,7 @@ export async function createHTTPServer(
     }
     const session = sessions.get(sessionId);
     if (session) {
+      if (!ownsSession(req, res, session)) return;
       await session.transport.handleRequest(req, res);
     } else {
       sessionNotFound(res, sessionId);
@@ -254,6 +260,7 @@ export async function createHTTPServer(
     }
     const session = sessions.get(sessionId);
     if (session) {
+      if (!ownsSession(req, res, session)) return;
       await session.transport.handleRequest(req, res);
     } else {
       sessionNotFound(res, sessionId);

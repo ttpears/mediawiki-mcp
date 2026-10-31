@@ -19,6 +19,9 @@ export interface AuthCodeRecord {
   canWrite: boolean;
   clientId: string;
   clientCodeChallenge: string;
+  clientRedirectUri?: string;
+  /** Absolute deadline inherited by every rotated refresh token. */
+  authExpiresAt?: number;
   createdAt: number;
 }
 
@@ -29,6 +32,7 @@ export interface RefreshRecord {
   username: string;
   canWrite: boolean;
   clientId: string;
+  authExpiresAt?: number;
 }
 
 /**
@@ -53,14 +57,39 @@ export interface TokenStore {
 
   // Broker refresh tokens (keyed by token)
   saveRefresh(r: RefreshRecord): Promise<void>;
+  peekRefresh(token: string): Promise<RefreshRecord | undefined>;
   takeRefresh(token: string): Promise<RefreshRecord | undefined>;
 }
 
+/** Expire and bound OAuth state when Redis is not configured. */
+class ExpiringRecords<T> {
+  private records = new Map<string, { value: T; expiresAt: number }>();
+
+  constructor(private readonly ttlMs: number) {}
+
+  set(key: string, value: T, deadline = Date.now() + this.ttlMs): void {
+    for (const [id, entry] of this.records) {
+      if (entry.expiresAt <= Date.now()) this.records.delete(id);
+    }
+    if (!this.records.has(key) && this.records.size >= 10000) throw new Error('OAuth state capacity reached');
+    this.records.set(key, { value, expiresAt: Math.min(deadline, Date.now() + this.ttlMs) });
+  }
+
+  get(key: string): T | undefined {
+    const entry = this.records.get(key);
+    if (entry && entry.expiresAt > Date.now()) return entry.value;
+    this.records.delete(key);
+    return undefined;
+  }
+
+  delete(key: string): void { this.records.delete(key); }
+}
+
 export class InMemoryTokenStore implements TokenStore {
-  private clients = new Map<string, OAuthClientInformationFull>();
-  private pending = new Map<string, PendingAuth>();
-  private codes = new Map<string, AuthCodeRecord>();
-  private refresh = new Map<string, RefreshRecord>();
+  private clients = new ExpiringRecords<OAuthClientInformationFull>(90 * 24 * 60 * 60 * 1000);
+  private pending = new ExpiringRecords<PendingAuth>(10 * 60 * 1000);
+  private codes = new ExpiringRecords<AuthCodeRecord>(10 * 60 * 1000);
+  private refresh = new ExpiringRecords<RefreshRecord>(31 * 24 * 60 * 60 * 1000);
 
   async getClient(clientId: string): Promise<OAuthClientInformationFull | undefined> {
     return this.clients.get(clientId);
@@ -91,7 +120,10 @@ export class InMemoryTokenStore implements TokenStore {
   }
 
   async saveRefresh(r: RefreshRecord): Promise<void> {
-    this.refresh.set(r.token, r);
+    this.refresh.set(r.token, r, r.authExpiresAt);
+  }
+  async peekRefresh(token: string): Promise<RefreshRecord | undefined> {
+    return this.refresh.get(token);
   }
   async takeRefresh(token: string): Promise<RefreshRecord | undefined> {
     const r = this.refresh.get(token);

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest';
 import { BrokerTokens } from '../../src/auth/tokens.js';
+import { SignJWT } from 'jose';
 
 const AUD = 'https://mcp.example.com/mcp';
 
@@ -41,5 +42,17 @@ describe('BrokerTokens', () => {
     const t = new BrokerTokens('secret', AUD, ['mediawiki']);
     const token = await t.signAccessToken('u', 'c', { username: 'x', canWrite: false }, -10);
     await expect(t.verifyAccessToken(token)).rejects.toThrow();
+  });
+
+  it('rejects a token without an expiration even when its signature is valid', async () => {
+    const token = await new SignJWT({ client_id: 'c' }).setProtectedHeader({ alg: 'HS256' })
+      .setSubject('u').setAudience(AUD).setIssuedAt().sign(new TextEncoder().encode('secret'));
+    await expect(new BrokerTokens('secret', AUD, ['mediawiki']).verifyAccessToken(token)).rejects.toThrow();
+  });
+
+  it('rejects another HMAC algorithm even when signed with the same secret', async () => {
+    const token = await new SignJWT({ client_id: 'c' }).setProtectedHeader({ alg: 'HS384' })
+      .setSubject('u').setAudience(AUD).setIssuedAt().setExpirationTime('1h').sign(new TextEncoder().encode('secret'));
+    await expect(new BrokerTokens('secret', AUD, ['mediawiki']).verifyAccessToken(token)).rejects.toThrow();
   });
 });

@@ -20,6 +20,8 @@ export interface SessionContext {
    * Entra write role. Write handlers must check `isWriteAllowed(context)`.
    */
   canWrite?: boolean;
+  /** Remote OAuth users may only use the operator-configured wiki farm. */
+  canManageWikis?: boolean;
 }
 
 /** Write is allowed unless explicitly disabled (OAuth users lacking the write role). */
@@ -39,7 +41,7 @@ export const WRITE_FORBIDDEN_RESULT = {
 };
 
 export function registerAllTools(server: McpServer, context: SessionContext): void {
-  registerWikiTools(server, context.orchestrator);
+  registerWikiTools(server, context.orchestrator, context.canManageWikis !== false && isWriteAllowed(context));
   registerSearchTools(server, context.orchestrator);
   registerPageTools(server, context);
   registerHistoryTools(server, context.orchestrator);
