@@ -25,8 +25,23 @@ jobs:
 
       - run: npm ci
       - run: npm run type-check
-      - run: npm test
+      - run: npm run test:coverage
       - run: npm run build
+
+  integration:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npm run test:integration
+      - name: Remove test services after interruption
+        if: always()
+        run: npm run test:env:down
 
   # Per-PR preview image so a connector stack can be pointed at
   # ghcr.io/<owner>/mediawiki-mcp:branch-<slug> while validating.
@@ -38,7 +53,7 @@ jobs:
   # package". Fork PRs therefore build the image (which still validates the
   # Dockerfile) but skip the login and the push.
   docker-preview:
-    needs: build
+    needs: [build, integration]
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
     permissions:
@@ -81,7 +96,7 @@ jobs:
           tags: ghcr.io/${{ github.repository_owner }}/mediawiki-mcp:branch-${{ steps.s.outputs.slug }}
 
   tag:
-    needs: build
+    needs: [build, integration]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     permissions:

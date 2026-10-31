@@ -5,10 +5,17 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
+    exclude: ['tests/integration/**'],
+    setupFiles: ['tests/setup.ts'],
+    clearMocks: true,
+    restoreMocks: true,
+    unstubEnvs: true,
+    unstubGlobals: true,
     coverage: {
       provider: 'v8',
       include: ['src/**/*.ts'],
-      exclude: ['src/index.ts', 'src/stdio.ts', 'src/sse-transport.ts']
+      reporter: ['text', 'html', 'lcov'],
+      exclude: ['src/index.ts', 'src/stdio.ts']
     }
   }
 });

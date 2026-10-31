@@ -1,0 +1,14 @@
+.git
+node_modules
+dist
+dist-mcpb
+coverage
+.test-env
+.env
+.env.*
+*.mcpb
+*.tgz
+*.log
+tests
+docs
+.github

@@ -1,0 +1,29 @@
+services:
+  mediawiki:
+    image: mediawiki:1.43
+    entrypoint: ["/bin/sh", "/fixture/start.sh"]
+    environment:
+      FIXTURE_PROJECT: ${MW_TEST_PROJECT:?Use npm run test:env:up}
+    volumes:
+      - ./mediawiki:/fixture:ro
+    ports:
+      - target: 80
+        published: "0"
+        host_ip: 127.0.0.1
+    healthcheck:
+      test: ["CMD", "php", "/fixture/health.php"]
+      interval: 2s
+      timeout: 5s
+      retries: 60
+      start_period: 10s
+  redis:
+    image: redis:7-alpine
+    ports:
+      - target: 6379
+        published: "0"
+        host_ip: 127.0.0.1
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 3s
+      retries: 30
