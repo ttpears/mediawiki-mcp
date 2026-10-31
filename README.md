@@ -31,7 +31,7 @@ Field notes: [MediaWiki MCP: reads worked after login expired](https://hackyourw
 ```bash
 git clone https://github.com/ttpears/mediawiki-mcp.git
 cd mediawiki-mcp
-npm install
+npm ci
 npm run build
 ```
 
@@ -164,13 +164,43 @@ MEDIAWIKI_MCP_HOST=0.0.0.0
 npm start
 ```
 
+This reads environment variables inherited from the MCP client or shell. For a
+source checkout configured with a local `.env`, use Node.js 24 LTS and load the
+file explicitly:
+
+```bash
+node --env-file=.env dist/index.js
+```
+
+`npm start` and `npm run start:http` do not load `.env` themselves. Docker Compose
+loads it through the service's `env_file` setting.
+
 ### HTTP Mode (Remote / Docker)
 
 ```bash
 npm run start:http
 ```
 
+For a source checkout with `.env`:
+
+```bash
+node --env-file=.env dist/http-transport.js
+```
+
 Endpoint: `http://localhost:8009/mcp`
+
+Check the running service and its version with:
+
+```bash
+curl --fail http://localhost:8009/health
+```
+
+The health response includes `status`, `version`, and `auth`; it checks the server,
+not connectivity or credentials for each wiki. Call `list-wikis` through your MCP
+client to inspect wiki authentication. The default HTTP mode has no inbound
+authentication; use it on a private network for LibreChat, or configure OAuth
+below for a public connector. The local HTTP default is loopback; the container
+sets `MEDIAWIKI_MCP_HOST=0.0.0.0` so its published port is reachable.
 
 ### LibreChat Integration
 
@@ -286,12 +316,14 @@ All tools that accept a `wiki` parameter will use the default wiki when omitted.
 |------|-------------|
 | `add-wiki` | Register a new named wiki (name, url, username, password) |
 | `remove-wiki` | Remove a registered wiki |
+| `set-wiki` | Set the default wiki for this session |
 | `list-wikis` | Show all registered wikis |
 
 ### Search (Fan-Out)
 
 | Tool | Description |
 |------|-------------|
+| `find-page` | Locate a page by exact title, redirect, prefix, then full-text match |
 | `search-pages` | Full-text search across wikis |
 | `search-pages-by-prefix` | Title prefix search across wikis |
 
@@ -303,7 +335,7 @@ All tools that accept a `wiki` parameter will use the default wiki when omitted.
 |------|-------------|
 | `get-page` | Get page content (wikitext or HTML) and metadata |
 | `create-page` | Create a new page |
-| `update-page` | Edit an existing page (requires `latest_timestamp` from get-page) |
+| `update-page` | Edit with a unified diff, section and content, append, prepend, or full replacement |
 | `delete-page` | Delete a page |
 | `undelete-page` | Restore a deleted page |
 
@@ -344,12 +376,47 @@ All tools that accept a `wiki` parameter will use the default wiki when omitted.
 ## Development
 
 ```bash
-npm run dev        # Watch mode
+npm run dev        # Compile and watch; does not start a server
 npm run type-check # Type checking
 npm run build      # Build
-npm test           # Run tests (85 tests)
+npm test           # Run the current test suite
 npm run test:watch # Watch mode tests
 ```
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for a disposable wiki setup and
+[the release guide](docs/releasing.md) for version bumps, publication, and
+verification across npm, Docker, and Claude Desktop.
+
+## Upgrading and troubleshooting
+
+Use a versioned package or image for repeatable deployments. After a release is
+published, `npx -y mediawiki-mcp@2.5.3` selects that exact stdio package. Update the
+command in your MCP client and restart the server process; an existing process
+does not upgrade itself. The MCP `initialize` response reports the running
+version. Claude Desktop users install the new release's `.mcpb` asset.
+
+For this repository's Compose file, which builds from source:
+
+```bash
+git pull --ff-only
+docker compose up -d --build mediawiki-mcp
+curl --fail http://localhost:8009/health
+```
+
+Deployments using the published image should pin
+`ghcr.io/ttpears/mediawiki-mcp:2.5.3`, pull it, and recreate their service instead
+of using the source-build command. Keep the previous version available for
+rollback. Version tags become available only after release approval and successful
+publication; a Git tag alone does not mean npm or the image has been published.
+
+| Symptom | What to check |
+|---------|---------------|
+| Missing wiki configuration | Export `MEDIAWIKI_*`, load `.env` explicitly for Node, or check Compose `env_file`. |
+| Reads work but writes fail | Call `list-wikis` and check the bot username, password, and MediaWiki grants. Expired bot sessions are retried on writes; revoked credentials still need replacing. |
+| HTTP 404 with `Session not found` | Reconnect or re-initialize the MCP client. Sessions expire after 30 minutes idle by default and are lost on restart. |
+| HTTP 503 on a new connection | The session cap was reached; inspect `MEDIAWIKI_MAX_SESSIONS` and idle-session settings in `.env.example`. |
+| HTTP 421 in OAuth mode | Check the public hostname against `MEDIAWIKI_MCP_ALLOWED_HOSTS`. |
+| Container is unreachable | Check the port mapping, `/health`, and the bind host. Inside a container, loopback is not reachable through a published port. |
 
 ## Architecture
 
