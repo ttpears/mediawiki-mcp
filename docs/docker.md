@@ -126,8 +126,8 @@ docker compose exec mediawiki-mcp wget -qO- http://127.0.0.1:8009/health
 
 Restart the LibreChat app container so it reloads `librechat.yaml`. In a new chat,
 select the MediaWiki tools and ask it to list connected wikis, then read a known
-page. LibreChat user headers provide edit attribution; they are not an
-independent authentication system for this endpoint.
+page. If LibreChat sends `x-user-username`, that value supplies edit attribution.
+The header is not an independent authentication check for this endpoint.
 
 ## Build from this repository instead
 

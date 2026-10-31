@@ -74,7 +74,7 @@ claude mcp add --scope user \
 ```
 
 Use one registration form. If `mediawiki` is already registered, remove that entry
-with `claude mcp remove mediawiki` before adding its replacement. Credentials are
+with `claude mcp remove --scope user mediawiki` before adding its replacement. Credentials are
 stored in the client configuration; avoid sharing a project configuration that
 contains a bot password.
 

@@ -16,6 +16,11 @@ Start with one of the complete setup guides above. Use this page to look up a
 setting or extend a working setup. The repository's [.env.example](../.env.example)
 is a reference template, not a usable wiki configuration until edited.
 
+With Node's `--env-file`, an already-exported environment variable takes
+precedence over the file. In Compose, a service's `environment` entries take
+precedence over its `env_file`. Check those sources if an edit to `.env` seems
+to have no effect.
+
 [Wiki URLs](#wiki-urls) · [Bot passwords](#bot-passwords) · [Multiple wikis](#multiple-wikis) · [HTTP](#http-server-and-sessions) · [Images](#inline-image-downloads) · [OAuth](#oauth-settings)
 
 ## Wiki URLs
