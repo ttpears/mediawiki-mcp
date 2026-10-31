@@ -4,6 +4,31 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.5.2] - 2026-10-31
+
+### Fixed
+- HTTP transport failures now return a JSON-RPC internal error instead of
+  Express's HTML error page. Responses that have already started streaming are
+  closed without attempting to send a second response (#27, #38).
+- Session expiry integration tests now control the clock instead of depending
+  on short wall-clock sleeps, avoiding failures under parallel test load
+  (#11, #26).
+
+### Security
+- Refresh runtime dependencies, including the MCP SDK, Express 5, Redis, jose,
+  diff, and Zod, and the development toolchain since 2.5.1.
+- Update transitive dependencies `@hono/node-server`, `body-parser`, `fast-uri`,
+  `follow-redirects`, `ip-address`, and `qs` to clear all six remaining npm audit
+  findings (two high and four moderate). Full and production-only audits report
+  zero known vulnerabilities at release preparation.
+
+### Changed
+- Build, release, and container runtimes use Node.js 24 LTS. The declared minimum
+  is corrected to Node.js 20 to match the existing Redis 6 and Hono adapter
+  requirements; Node.js 18 is no longer advertised as supported.
+- Update pinned GitHub Actions and keep the package and Claude plugin versions
+  synchronized at 2.5.2. MCPB manifests inherit the package version at build time.
+
 ## [2.5.1] - 2026-10-04
 
 ### Fixed

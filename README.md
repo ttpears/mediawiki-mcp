@@ -23,7 +23,7 @@ Field notes: [MediaWiki MCP: reads worked after login expired](https://hackyourw
 
 ### Prerequisites
 
-- Node.js 18 or higher
+- Node.js 20 or higher (Node.js 24 LTS recommended)
 - MediaWiki 1.42 or higher
 
 ### Local Installation

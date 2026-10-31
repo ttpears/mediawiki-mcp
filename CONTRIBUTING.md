@@ -137,10 +137,10 @@ never ships anything on its own.
   `.env` per the setup steps silently does nothing unless you load it
   yourself: `node --env-file=.env dist/index.js`. A known issue, not yet
   fixed as of this PR.
-- **`npm install` reports a double-digit number of audit vulnerabilities.**
-  See [#9](https://github.com/ttpears/mediawiki-mcp/issues/9) for the actual
-  `npm audit` output and a breakdown of which ones are dev-only/transitive
-  versus reachable from the runtime path. Not a blocker for local dev.
+- **Check dependencies with `npm audit` and `npm audit --omit=dev`.** The
+  historical findings in [#9](https://github.com/ttpears/mediawiki-mcp/issues/9)
+  have been resolved. Both audits report zero known vulnerabilities for the
+  2.5.2 lockfile at release preparation; rerun them for current results.
 - Once running, the server sits in stdio mode (or serves HTTP, if using
   `start:http`) waiting for an MCP client to connect — that's expected
   behavior, not a hang.

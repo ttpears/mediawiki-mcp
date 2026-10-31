@@ -17,7 +17,7 @@ jobs:
           # base, deliberately kept in lockstep so the shipped container never
           # runs a Node nothing tests against. 24 is the Active LTS line; 22
           # entered Maintenance in Oct 2025 and 26 is not LTS until Oct 2026.
-          # package.json declares `engines: node >=18`, but only this one
+          # package.json declares `engines: node >=20`, but only this one
           # version is exercised — a matrix would rename the job to
           # `build (24)` and break the `build` required status check on main.
           node-version: 24
