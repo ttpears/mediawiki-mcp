@@ -4,10 +4,11 @@ import { OAuthServerProvider, AuthorizationParams } from '@modelcontextprotocol/
 import { OAuthRegisteredClientsStore } from '@modelcontextprotocol/sdk/server/auth/clients.js';
 import { OAuthClientInformationFull, OAuthTokens } from '@modelcontextprotocol/sdk/shared/auth.js';
 import { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
-import { InvalidGrantError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
+import { InvalidGrantError, InvalidTokenError } from '@modelcontextprotocol/sdk/server/auth/errors.js';
 import { TokenStore, type AuthCodeRecord } from './token-store.js';
 import { EntraOIDCClient } from './entra-oidc.js';
 import { BrokerTokens } from './tokens.js';
+import { EntraServiceTokens, looksLikeEntraToken } from './service-tokens.js';
 
 /** Refresh rotation must never extend the original Entra authorization. */
 export const AUTH_SESSION_TTL_MS = 60 * 60 * 1000;
@@ -37,7 +38,8 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
     private readonly entra: EntraOIDCClient,
     private readonly tokens: BrokerTokens,
     private readonly writeRole: string,
-    genId?: () => string
+    genId?: () => string,
+    private readonly serviceTokens?: EntraServiceTokens
   ) {
     this.genId = genId ?? (() => randomBytes(32).toString('hex'));
   }
@@ -163,6 +165,15 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
   }
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
+    // An RS256 token is an Entra token, never one this broker signed (HS256):
+    // only a configured service caller may use one, read-only.
+    if (this.serviceTokens && looksLikeEntraToken(token)) {
+      try {
+        return await this.serviceTokens.verify(token);
+      } catch (err) {
+        throw new InvalidTokenError(err instanceof Error ? err.message : 'invalid service token');
+      }
+    }
     return this.tokens.verifyAccessToken(token);
   }
 

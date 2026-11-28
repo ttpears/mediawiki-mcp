@@ -61,7 +61,7 @@ or downloading an image does not replace a running process.
 
 ### Local clients
 
-For a client pinned to `mediawiki-mcp@2.5.4`, change that version in its launch
+For a client pinned to `mediawiki-mcp@2.6.0`, change that version in its launch
 command when you choose a newer published release, then restart/reconnect the MCP
 server from the client. An unpinned `npx -y mediawiki-mcp` command requests the
 current npm release on startup, subject to npm's local cache. Pinning a version
@@ -74,7 +74,7 @@ bundle if you need to roll back.
 ### Published Docker image
 
 In your Compose file, set the selected published image tag, for example
-`ghcr.io/ttpears/mediawiki-mcp:2.5.4`, then:
+`ghcr.io/ttpears/mediawiki-mcp:2.6.0`, then:
 
 ```bash
 docker compose pull mediawiki-mcp

@@ -162,6 +162,8 @@ For the complete deployment sequence, see [the OAuth guide](oauth.md).
 | `OAUTH_CLIENT_SECRET` | Yes | Entra app client secret |
 | `MEDIAWIKI_MCP_JWT_SECRET` | Yes | Random secret for broker access-token signing |
 | `OAUTH_WRITE_ROLE` | No | Entra role granting writes; default `Writer` |
+| `OAUTH_SERVICE_ROLE` | No | Application-type Entra app role a service caller's app-only token must carry, e.g. `Service.Read`. Set with `OAUTH_SERVICE_APP_IDS`; unset means service callers are refused |
+| `OAUTH_SERVICE_APP_IDS` | No | Comma-separated client IDs allowed to call with an app-only token. Service callers are always read-only |
 | `REDIS_URL` | Recommended for hosted use | Broker state; omitted means one-process in-memory state |
 | `MEDIAWIKI_MCP_TRUST_PROXY` | Behind a trusted proxy | `1` or `true` trusts one proxy hop for client-IP handling |
 | `MEDIAWIKI_MCP_ALLOWED_HOSTS` | No | Comma-separated accepted hostnames; local health-check hosts remain allowed |

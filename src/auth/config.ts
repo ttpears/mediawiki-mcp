@@ -33,6 +33,11 @@ export interface OAuthConfig {
   allowedHosts?: string[];
   /** Scopes advertised in authorization-server metadata. */
   scopesSupported: string[];
+  /** App role a service caller's app-only Entra token must carry (OAUTH_SERVICE_ROLE).
+   *  Unset with serviceAppIds empty: service access is off. */
+  serviceRole?: string;
+  /** Client ids allowed to call with an app-only token (OAUTH_SERVICE_APP_IDS, comma-separated). */
+  serviceAppIds: string[];
 }
 
 export function isOAuthMode(env: Record<string, string | undefined>): boolean {
@@ -65,6 +70,14 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
     ? allowedHostsRaw.split(',').map((h) => h.trim()).filter((h) => h.length > 0)
     : undefined;
 
+  // Service callers (app-only Entra tokens, read-only): both or neither.
+  const serviceRole = env.OAUTH_SERVICE_ROLE?.trim() || undefined;
+  const serviceAppIds = (env.OAUTH_SERVICE_APP_IDS ?? '')
+    .split(',').map((s) => s.trim()).filter((s) => s.length > 0);
+  if (Boolean(serviceRole) !== serviceAppIds.length > 0) {
+    throw new Error('OAUTH_SERVICE_ROLE and OAUTH_SERVICE_APP_IDS must be set together');
+  }
+
   return {
     publicUrl,
     issuerHost,
@@ -77,5 +90,7 @@ export function loadOAuthConfig(env: Record<string, string | undefined>): OAuthC
     trustProxy: env.MEDIAWIKI_MCP_TRUST_PROXY === '1' || env.MEDIAWIKI_MCP_TRUST_PROXY === 'true',
     allowedHosts,
     scopesSupported: ['mediawiki'],
+    serviceRole,
+    serviceAppIds,
   };
 }

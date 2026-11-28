@@ -4,6 +4,16 @@ All notable changes to this project are documented here. The format is loosely
 based on [Keep a Changelog](https://keepachangelog.com/), and the project follows
 semantic versioning.
 
+## [2.6.0] - 2026-11-28
+
+### Added
+- Optional read-only access for service callers in OAuth mode. An Entra
+  app-only access token for the connector's app is accepted when it carries the
+  Application-type role named in `OAUTH_SERVICE_ROLE` and its client ID is in
+  `OAUTH_SERVICE_APP_IDS`. Off unless both are set. Service callers never get
+  write tools, and a user's Entra token is still refused; users sign in through
+  the broker.
+
 ## [2.5.4] - 2026-10-31
 
 ### Security

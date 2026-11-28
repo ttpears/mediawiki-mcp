@@ -79,6 +79,27 @@ Generate a signing secret locally, for example with `openssl rand -hex 32`, and
 paste its output as `MEDIAWIKI_MCP_JWT_SECRET`. Keep it consistent across replicas
 that should accept the same broker tokens. Do not use the literal placeholder.
 
+### Allow a service caller (optional)
+
+An automated client with no user, such as a build agent, can call the connector
+with an Entra **app-only** access token (client credentials) for this app
+instead of signing in. It is refused unless you opt in:
+
+1. On this app registration, add an app role with **Allowed member types:
+   Applications**, for example `Service.Read`.
+2. Assign that role to the calling app's enterprise application.
+3. Set both variables:
+
+```dotenv
+OAUTH_SERVICE_ROLE=Service.Read
+OAUTH_SERVICE_APP_IDS=REPLACE_WITH_CALLER_CLIENT_ID
+```
+
+The caller requests a token for scope `api://<this app's client id>/.default`
+and sends it as the bearer token. It must carry the role, and its client ID must
+be on the list. Service callers get read tools only. A user's Entra token is
+never accepted here; users sign in through the broker as before.
+
 If requests arrive through **one trusted reverse proxy**, also set:
 
 ```dotenv
@@ -95,7 +116,7 @@ A single-host example, with a reverse proxy on the same host:
 ```yaml
 services:
   mediawiki-mcp:
-    image: ghcr.io/ttpears/mediawiki-mcp:2.5.4
+    image: ghcr.io/ttpears/mediawiki-mcp:2.6.0
     env_file:
       - .env
     ports:
