@@ -69,16 +69,16 @@ environment in GitHub; do not remove the protection to get a release through.
 
 ## Verify all channels
 
-Replace `2.5.4` below with the version being released:
+Replace `2.6.0` below with the version being released:
 
 ```bash
 npm view mediawiki-mcp version
-npm view mediawiki-mcp@2.5.4 dist.integrity dist.attestations
-gh release view v2.5.4 --repo ttpears/mediawiki-mcp
-docker buildx imagetools inspect ghcr.io/ttpears/mediawiki-mcp:2.5.4
+npm view mediawiki-mcp@2.6.0 dist.integrity dist.attestations
+gh release view v2.6.0 --repo ttpears/mediawiki-mcp
+docker buildx imagetools inspect ghcr.io/ttpears/mediawiki-mcp:2.6.0
 ```
 
-Check that the GitHub Release includes `mediawiki-mcp-2.5.4.mcpb`, both workflow
+Check that the GitHub Release includes `mediawiki-mcp-2.6.0.mcpb`, both workflow
 jobs succeeded, the versioned image exists, and `latest` points to that image's
 digest. Updating registries does not restart deployed MCP clients or containers;
 follow the [deployment upgrade steps](operations.md#upgrade) to roll out the release.

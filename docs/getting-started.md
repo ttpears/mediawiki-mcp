@@ -15,7 +15,7 @@ A public wiki can be tried without credentials. A private wiki or editing needs
 ## Claude Desktop
 
 1. Open the [latest GitHub release](https://github.com/ttpears/mediawiki-mcp/releases/latest).
-2. Download the asset ending in `.mcpb`, for example `mediawiki-mcp-2.5.4.mcpb`.
+2. Download the asset ending in `.mcpb`, for example `mediawiki-mcp-2.6.0.mcpb`.
 3. Open it with Claude Desktop, or install it from **Settings → Extensions**.
 4. Enter the configuration below and enable the extension.
 
@@ -56,7 +56,7 @@ On macOS, Linux, or a WSL shell, register a public wiki first:
 ```bash
 claude mcp add --scope user \
   --env 'MEDIAWIKI_BASE_URL=https://wiki.example.com' \
-  mediawiki -- npx -y mediawiki-mcp@2.5.4
+  mediawiki -- npx -y mediawiki-mcp@2.6.0
 ```
 
 Replace the example URL. `--scope user` makes the connection available in all
@@ -70,7 +70,7 @@ claude mcp add --scope user \
   --env 'MEDIAWIKI_BASE_URL=https://wiki.example.com' \
   --env 'MEDIAWIKI_USERNAME=YourUser@mcp' \
   --env 'MEDIAWIKI_PASSWORD=REPLACE_WITH_BOT_PASSWORD' \
-  mediawiki -- npx -y mediawiki-mcp@2.5.4
+  mediawiki -- npx -y mediawiki-mcp@2.6.0
 ```
 
 Use one registration form. If `mediawiki` is already registered, remove that entry
@@ -82,7 +82,7 @@ On **native Windows**, use a single line in PowerShell and launch npm through
 `cmd /c`:
 
 ```powershell
-claude mcp add --scope user --env "MEDIAWIKI_BASE_URL=https://wiki.example.com" mediawiki -- cmd /c npx -y mediawiki-mcp@2.5.4
+claude mcp add --scope user --env "MEDIAWIKI_BASE_URL=https://wiki.example.com" mediawiki -- cmd /c npx -y mediawiki-mcp@2.6.0
 ```
 
 Add the same `--env` credential flags before `mediawiki` if your wiki needs them.
@@ -110,7 +110,7 @@ claude mcp add --scope user \
   --env 'MEDIAWIKI_PASSWORD_MAIN=REPLACE_WITH_MAIN_BOT_PASSWORD' \
   --env 'MEDIAWIKI_USERNAME_DEV=YourUser@mcp' \
   --env 'MEDIAWIKI_PASSWORD_DEV=REPLACE_WITH_DEV_BOT_PASSWORD' \
-  mediawiki -- npx -y mediawiki-mcp@2.5.4
+  mediawiki -- npx -y mediawiki-mcp@2.6.0
 ```
 
 Each wiki needs its own credentials. Omit both credential variables for a wiki
@@ -119,7 +119,7 @@ for naming, defaults, and which operations search every wiki.
 
 ## Other stdio clients
 
-Configure the client to launch `npx -y mediawiki-mcp@2.5.4` and pass the wiki
+Configure the client to launch `npx -y mediawiki-mcp@2.6.0` and pass the wiki
 variables in its environment. Clients that use a Claude-style `mcpServers`
 configuration can use:
 
@@ -128,7 +128,7 @@ configuration can use:
   "mcpServers": {
     "mediawiki": {
       "command": "npx",
-      "args": ["-y", "mediawiki-mcp@2.5.4"],
+      "args": ["-y", "mediawiki-mcp@2.6.0"],
       "env": {
         "MEDIAWIKI_BASE_URL": "https://wiki.example.com"
       }
@@ -138,7 +138,7 @@ configuration can use:
 ```
 
 On native Windows, use `"command": "cmd"` and
-`"args": ["/c", "npx", "-y", "mediawiki-mcp@2.5.4"]` if the client cannot launch
+`"args": ["/c", "npx", "-y", "mediawiki-mcp@2.6.0"]` if the client cannot launch
 `npx` directly. Your client's configuration-file location may differ.
 
 Launching the server manually produces no chat UI: it waits for MCP messages on

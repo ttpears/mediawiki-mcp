@@ -13,6 +13,8 @@ import { OAuthConfig, isOAuthMode, loadOAuthConfig } from './auth/config.js';
 import { TokenStore } from './auth/token-store.js';
 import { EntraOIDCClient } from './auth/entra-oidc.js';
 import { BrokerOAuthProvider } from './auth/broker-provider.js';
+import type { JWTVerifyGetKey } from 'jose';
+import { EntraServiceTokens } from './auth/service-tokens.js';
 import { BrokerTokens } from './auth/tokens.js';
 import { createBrokerRouter } from './auth/broker-router.js';
 import { resolveTrustProxy } from './trust-proxy.js';
@@ -25,6 +27,8 @@ export interface OAuthDeps {
   store: TokenStore;
   /** Entra OIDC client used to authenticate the connecting user. */
   entra: EntraOIDCClient;
+  /** Verification keys for service callers' Entra tokens (tests); default: Entra's JWKS. */
+  serviceKeys?: JWTVerifyGetKey;
 }
 
 export async function createHTTPServer(
@@ -100,11 +104,21 @@ export async function createHTTPServer(
       `${oauth.config.publicUrl}/mcp`,
       oauth.config.scopesSupported
     );
+    const serviceTokens = oauth.config.serviceRole
+      ? new EntraServiceTokens({
+        tenantId: oauth.config.tenantId,
+        clientId: oauth.config.clientId,
+        role: oauth.config.serviceRole,
+        appIds: oauth.config.serviceAppIds,
+      }, oauth.serviceKeys)
+      : undefined;
     const provider = new BrokerOAuthProvider(
       oauth.store,
       oauth.entra,
       brokerTokens,
-      oauth.config.writeRole
+      oauth.config.writeRole,
+      undefined,
+      serviceTokens
     );
     const { router, resourceMetadataUrl } = createBrokerRouter(oauth.config, provider);
     app.use(router);

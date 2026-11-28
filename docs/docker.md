@@ -40,7 +40,7 @@ lines. For several wikis, replace this block with the
 ```yaml
 services:
   mediawiki-mcp:
-    image: ghcr.io/ttpears/mediawiki-mcp:2.5.4
+    image: ghcr.io/ttpears/mediawiki-mcp:2.6.0
     env_file:
       - .env
     ports:
@@ -65,7 +65,7 @@ docker compose logs --tail=50 mediawiki-mcp
 curl --fail http://127.0.0.1:8009/health
 ```
 
-The health response should include `"status":"ok"`, `"version":"2.5.4"`, and
+The health response should include `"status":"ok"`, `"version":"2.6.0"`, and
 `"auth":"none"`. It proves the connector is running, not that wiki credentials
 work. Configure your MCP client to use **Streamable HTTP** at
 `http://127.0.0.1:8009/mcp`, then ask it to run `list-wikis` and read a known page.
@@ -93,7 +93,7 @@ replacing other services:
 ```yaml
 services:
   mediawiki-mcp:
-    image: ghcr.io/ttpears/mediawiki-mcp:2.5.4
+    image: ghcr.io/ttpears/mediawiki-mcp:2.6.0
     env_file:
       - ./mediawiki-mcp.env
     restart: unless-stopped
