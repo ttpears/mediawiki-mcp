@@ -27,7 +27,9 @@ beforeAll(async () => {
 });
 
 async function entraToken(claims: Record<string, unknown>, opts: { iss?: string; aud?: string } = {}) {
-  return new SignJWT({ azp: FACTORY, roles: ['Service.Read'], ...claims })
+  const body: Record<string, unknown> = { azp: FACTORY, roles: ['Service.Read'], ...claims };
+  for (const k of Object.keys(body)) if (body[k] === undefined) delete body[k];
+  return new SignJWT(body)
     .setProtectedHeader({ alg: 'RS256', kid: 'k1' })
     .setIssuer(opts.iss ?? ISS)
     .setAudience(opts.aud ?? `api://${CLIENT}`)
@@ -49,14 +51,40 @@ describe('EntraServiceTokens', () => {
     expect(info.extra).toMatchObject({ sub: 'app:sp-object-id', canWrite: false, service: true });
   });
 
-  it('accepts the v1 issuer and the bare client id as audience', async () => {
-    const t = await entraToken({}, { iss: `https://sts.windows.net/${TENANT}/`, aud: CLIENT });
-    await expect(verifier().verify(t)).resolves.toBeTruthy();
+  it('a v1 token is judged by appid, not azp', async () => {
+    const v1 = { iss: `https://sts.windows.net/${TENANT}/`, aud: CLIENT };
+    const ok = await verifier().verify(await entraToken({ azp: undefined, appid: FACTORY }, v1));
+    expect(ok.clientId).toBe(FACTORY);
+    await expect(verifier().verify(await entraToken({ azp: FACTORY, appid: 'other-app' }, v1)))
+      .rejects.toThrow(/not allowed/);
+    await expect(verifier().verify(await entraToken({ azp: FACTORY }, v1))).rejects.toThrow(/not allowed/);
   });
 
-  it('refuses a user (delegated) token: users sign in through the broker', async () => {
-    await expect(verifier().verify(await entraToken({ scp: 'access_as_user' })))
-      .rejects.toThrow(/broker/);
+  it('a v2 token is judged by azp, not appid', async () => {
+    await expect(verifier().verify(await entraToken({ azp: 'other-app', appid: FACTORY })))
+      .rejects.toThrow(/not allowed/);
+  });
+
+  it('refuses a user (delegated) token in any form: users sign in through the broker', async () => {
+    for (const claims of [{ scp: 'access_as_user' }, { scp: '' }, { scp: null },
+      { idtyp: 'user' }, { idtyp: 'app', scp: 'x' }]) {
+      await expect(verifier().verify(await entraToken(claims)), JSON.stringify(claims))
+        .rejects.toThrow(/broker/);
+    }
+    await expect(verifier().verify(await entraToken({ idtyp: 'app' }))).resolves.toBeTruthy();
+  });
+
+  it('refuses an expired token or one signed by another key', async () => {
+    const expired = await new SignJWT({ azp: FACTORY, roles: ['Service.Read'] })
+      .setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuer(ISS).setAudience(`api://${CLIENT}`)
+      .setSubject('s').setIssuedAt(Math.floor(Date.now() / 1000) - 7200)
+      .setExpirationTime(Math.floor(Date.now() / 1000) - 3600).sign(privateKey);
+    await expect(verifier().verify(expired)).rejects.toThrow();
+    const other = (await generateKeyPair('RS256')).privateKey as CryptoKey;
+    const forged = await new SignJWT({ azp: FACTORY, roles: ['Service.Read'] })
+      .setProtectedHeader({ alg: 'RS256', kid: 'k1' }).setIssuer(ISS).setAudience(`api://${CLIENT}`)
+      .setSubject('s').setIssuedAt().setExpirationTime('10m').sign(other);
+    await expect(verifier().verify(forged)).rejects.toThrow();
   });
 
   it('refuses an app-only token without the role, or from an app not allowed', async () => {
@@ -104,9 +132,22 @@ describe('BrokerOAuthProvider with service tokens', () => {
   const tokens = new BrokerTokens('s', 'https://m/mcp', ['mediawiki']);
   const entra = {} as EntraOIDCClient;
 
-  it('without service config an Entra token still fails as before', async () => {
-    const p = new BrokerOAuthProvider(new InMemoryTokenStore(), entra, tokens, 'Writer');
-    await expect(p.verifyAccessToken(await entraToken({}))).rejects.toThrow();
+  it('every refusal is the same fixed invalid_token, with or without service config', async () => {
+    const off = new BrokerOAuthProvider(new InMemoryTokenStore(), entra, tokens, 'Writer');
+    const on = new BrokerOAuthProvider(new InMemoryTokenStore(), entra, tokens, 'Writer', undefined,
+      verifier());
+    const expiredBroker = await tokens.signAccessToken('u', 'c', { username: 'u', canWrite: false }, -10)
+      .catch(() => 'x.y.z');
+    for (const p of [off, on]) {
+      for (const t of [await entraToken({}), 'not-a-jwt', 'a.b.c', expiredBroker,
+        await entraToken({ roles: [] })]) {
+        if (p === on && t === undefined) continue;
+        const err = await p.verifyAccessToken(t).then(() => null, (e) => e);
+        if (p === on && err === null) continue; // the valid service token on the enabled provider
+        expect(err).toMatchObject({ errorCode: 'invalid_token', message: 'Invalid or expired access token' });
+      }
+    }
+    await expect(on.verifyAccessToken(await entraToken({}))).resolves.toBeTruthy();
   });
 
   it('a refused service token is an invalid-token error (401), broker tokens unchanged', async () => {
@@ -168,5 +209,32 @@ describe('HTTP transport: a service caller', () => {
     expect(names).toContain('get-page');
     expect(names).not.toContain('update-page');
     expect(names).not.toContain('delete-page');
+
+    // refusals are 401 invalid_token and never reflect the token
+    const init2 = { jsonrpc: '2.0', id: 9, method: 'initialize', params: { protocolVersion: '2024-11-05',
+      capabilities: {}, clientInfo: { name: 't', version: '1' } } };
+    // an unknown critical header, which jose names in its error (signature irrelevant)
+    const b64 = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
+    const crit = `${b64({ alg: 'RS256', kid: 'k1', crit: ['SECRETHEADER'], SECRETHEADER: 1 })}.` +
+      `${b64({ azp: FACTORY, roles: ['Service.Read'], iss: ISS, aud: `api://${CLIENT}` })}.c2ln`;
+    for (const bad of ['garbage-SECRETVALUE', 'a.b.c', crit]) {
+      const res = await post(bad, init2);
+      expect(res.status, bad).toBe(401);
+      const shown = res.text + (res.headers['www-authenticate'] ?? '');
+      expect(shown).not.toContain('SECRET');
+      expect(shown).toContain('invalid_token');
+    }
+
+    // a service token cannot drive a broker user's session
+    const user = await new BrokerTokens('s', 'https://mcp.example.com/mcp', ['mediawiki'])
+      .signAccessToken('user-1', 'client-1', { username: 'alice', canWrite: false });
+    const userInit = await post(user, init2);
+    expect(userInit.status).toBe(200);
+    const userSid = userInit.headers['mcp-session-id'];
+    const hijack = await post(token, { jsonrpc: '2.0', id: 3, method: 'tools/list' }, userSid);
+    expect(hijack.status).toBe(403);
+    const del = await request(server!).delete('/mcp').set('Authorization', `Bearer ${token}`)
+      .set('mcp-session-id', userSid);
+    expect(del.status).toBe(403);
   });
 });

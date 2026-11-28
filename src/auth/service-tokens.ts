@@ -31,20 +31,32 @@ export function looksLikeEntraToken(token: string): boolean {
   }
 }
 
-/** A token with no delegated scope is app-only (client credentials). */
+/**
+ * App-only (client credentials): no delegated scope at all, and no token type
+ * other than "app". Entra omits `idtyp` unless the app asks for it, so its
+ * absence is allowed; an `scp` claim in any form means a user token.
+ */
 function isAppOnly(payload: Record<string, unknown>): boolean {
-  if (payload.idtyp === 'app') return true;
-  return typeof payload.scp !== 'string' || payload.scp.trim() === '';
+  if ('scp' in payload) return false;
+  return payload.idtyp === undefined || payload.idtyp === 'app';
+}
+
+/** The calling app: `appid` in a v1 token, `azp` in a v2 token, by issuer. */
+function callerAppId(payload: Record<string, unknown>, v1Issuer: string): string {
+  const claim = payload.iss === v1Issuer ? payload.appid : payload.azp;
+  return typeof claim === 'string' ? claim : '';
 }
 
 export class EntraServiceTokens {
   private readonly issuers: string[];
+  private readonly v1Issuer: string;
   private readonly audiences: Set<string>;
   private readonly keys: JWTVerifyGetKey;
 
   constructor(private readonly cfg: ServiceTokenConfig, keys?: JWTVerifyGetKey) {
     const base = `https://login.microsoftonline.com/${cfg.tenantId}`;
-    this.issuers = [`${base}/v2.0`, `https://sts.windows.net/${cfg.tenantId}/`];
+    this.v1Issuer = `https://sts.windows.net/${cfg.tenantId}/`;
+    this.issuers = [`${base}/v2.0`, this.v1Issuer];
     this.audiences = new Set([cfg.clientId, `api://${cfg.clientId}`]);
     this.keys = keys ?? createRemoteJWKSet(new URL(`${base}/discovery/v2.0/keys`));
   }
@@ -62,8 +74,7 @@ export class EntraServiceTokens {
     if (!isAppOnly(payload)) throw new Error('user tokens sign in through the broker');
     const roles = Array.isArray(payload.roles) ? payload.roles.map(String) : [];
     if (!roles.includes(this.cfg.role)) throw new Error('app-only token without the service role');
-    const appId = typeof payload.azp === 'string' ? payload.azp
-      : typeof payload.appid === 'string' ? payload.appid : '';
+    const appId = callerAppId(payload, this.v1Issuer);
     if (!appId || !this.cfg.appIds.includes(appId)) {
       throw new Error('app-only token from an app that is not allowed');
     }

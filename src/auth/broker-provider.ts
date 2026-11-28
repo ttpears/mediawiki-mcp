@@ -166,15 +166,17 @@ export class BrokerOAuthProvider implements OAuthServerProvider {
 
   async verifyAccessToken(token: string): Promise<AuthInfo> {
     // An RS256 token is an Entra token, never one this broker signed (HS256):
-    // only a configured service caller may use one, read-only.
-    if (this.serviceTokens && looksLikeEntraToken(token)) {
-      try {
+    // only a configured service caller may use one, read-only. Every refusal
+    // is the same fixed invalid_token (401): verifier messages can carry
+    // token content, and an uncaught error would be a 500.
+    try {
+      if (this.serviceTokens && looksLikeEntraToken(token)) {
         return await this.serviceTokens.verify(token);
-      } catch (err) {
-        throw new InvalidTokenError(err instanceof Error ? err.message : 'invalid service token');
       }
+      return await this.tokens.verifyAccessToken(token);
+    } catch {
+      throw new InvalidTokenError('Invalid or expired access token');
     }
-    return this.tokens.verifyAccessToken(token);
   }
 
   private async issueTokens(
